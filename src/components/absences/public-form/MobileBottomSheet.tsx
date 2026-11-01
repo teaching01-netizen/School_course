@@ -100,6 +100,7 @@ function OpenMobileBottomSheet({ title, onClose, children, restoreFocusRef, publ
       ref={dialogRef} open role="dialog" aria-modal="true" aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       data-form-mode={publicForm ? "public" : undefined}
+      data-absence-design="v2"
       data-keyboard-open={viewport.keyboardLikelyOpen || undefined}
       className="absence-mobile-sheet"
       style={{ "--absence-sheet-height": `${viewport.height}px`, "--absence-sheet-offset": `${viewport.offsetTop}px` } as CSSProperties}

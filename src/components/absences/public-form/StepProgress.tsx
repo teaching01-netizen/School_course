@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import { motion } from "framer-motion";
+import type { CSSProperties } from "react";
 
 export type AbsenceStep = {
   label: string;
@@ -16,7 +17,11 @@ export default function StepProgress({ steps, currentStep, onStepClick }: StepPr
   return (
     <nav aria-label="Progress" className="absence-step-progress">
 
-      <ol role="list" className="absence-step-progress__steps">
+      <ol
+        role="list"
+        className="absence-step-progress__steps"
+        style={{ "--absence-step-count": steps.length } as CSSProperties}
+      >
         {steps.map((step, index) => {
           const isCompleted = index < currentStep;
           const isCurrent = index === currentStep;

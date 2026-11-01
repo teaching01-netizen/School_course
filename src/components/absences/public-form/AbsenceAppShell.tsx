@@ -62,6 +62,7 @@ export default function AbsenceAppShell({ children, header, footer, mode = "staf
     <div
       className="absence-app-shell"
       data-form-mode={mode}
+      data-absence-design="v2"
       data-keyboard-open={viewport.keyboardLikelyOpen ? "true" : "false"}
       style={style}
     >

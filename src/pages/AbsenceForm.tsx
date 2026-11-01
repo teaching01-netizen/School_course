@@ -1063,7 +1063,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         : `Your ${submittedCount} absence requests have been sent and are waiting for review.`;
     const referenceId = finalResults[0]?.id?.slice(0, 8).toUpperCase() || "";
     return (
-      <main data-form-mode={mode} className="absence-receipt min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
+      <main data-form-mode={mode} data-absence-design="v2" className="absence-receipt min-h-screen bg-[var(--color-wi-bg)] px-4 py-8">
         <div className="mx-auto max-w-lg space-y-6">
           <p className="absence-receipt__identity">Warwick Institute <span>Student absence</span></p>
           <div className="absence-receipt__confirmation rounded-lg border border-[var(--color-wi-green)]/30 bg-white p-6 shadow-sm" aria-live="polite">

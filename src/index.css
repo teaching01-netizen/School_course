@@ -814,7 +814,7 @@ html {
 }
 
 /* Public absence: semantic colors stay local to the form and its native dialog. */
-[data-form-mode="public"] {
+[data-absence-design="v2"] {
   color-scheme: light;
   --absence-surface: #ffffff;
   --absence-on-accent: #ffffff;
@@ -840,46 +840,46 @@ html {
   line-height: 1.55;
 }
 
-[data-form-mode="public"] .bg-white { background-color: var(--absence-surface); }
-[data-form-mode="public"] .text-white { color: var(--absence-on-accent); }
-[data-form-mode="public"] .text-xs { font-size: 0.875rem; line-height: 1.4; }
-[data-form-mode="public"] :is(.text-sm, .text-base) { font-size: 1.0625rem; line-height: 1.5; }
-[data-form-mode="public"] .uppercase { text-transform: none; letter-spacing: normal; }
-[data-form-mode="public"] .shadow-sm { box-shadow: none; }
-[data-form-mode="public"] :where(button, p, label, span, h1, h2, h3) { overflow-wrap: anywhere; }
-[data-form-mode="public"] :where(button, input, textarea, select) {
+[data-absence-design="v2"] .bg-white { background-color: var(--absence-surface); }
+[data-absence-design="v2"] .text-white { color: var(--absence-on-accent); }
+[data-absence-design="v2"] .text-xs { font-size: 0.875rem; line-height: 1.4; }
+[data-absence-design="v2"] :is(.text-sm, .text-base) { font-size: 1.0625rem; line-height: 1.5; }
+[data-absence-design="v2"] .uppercase { text-transform: none; letter-spacing: normal; }
+[data-absence-design="v2"] .shadow-sm { box-shadow: none; }
+[data-absence-design="v2"] :where(button, p, label, span, h1, h2, h3) { overflow-wrap: anywhere; }
+[data-absence-design="v2"] :where(button, input, textarea, select) {
   -webkit-tap-highlight-color: transparent;
   scroll-margin-block: 1rem;
 }
-[data-form-mode="public"] :where(button) {
+[data-absence-design="v2"] :where(button) {
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
   touch-action: manipulation;
 }
-[data-form-mode="public"] :where(button):active:not(:disabled) { filter: brightness(0.92); }
-[data-form-mode="public"] button:disabled { color: var(--color-wi-text-light); }
-[data-form-mode="public"] :where(button, input, textarea, select):focus-visible {
+[data-absence-design="v2"] :where(button):active:not(:disabled) { filter: brightness(0.92); }
+[data-absence-design="v2"] button:disabled { color: var(--color-wi-text-light); }
+[data-absence-design="v2"] :where(button, input, textarea, select):focus-visible {
   outline: 2px solid var(--color-wi-primary);
   outline-offset: 3px;
 }
-.absence-app-shell[data-form-mode="public"] .absence-course-block:focus-visible { outline: 2px solid var(--color-wi-primary); outline-offset: 3px; }
+.absence-app-shell[data-absence-design="v2"] .absence-course-block:focus-visible { outline: 2px solid var(--color-wi-primary); outline-offset: 3px; }
 
-[data-form-mode="public"] :where(input:not([type="checkbox"]):not([type="radio"]):not([autocomplete="one-time-code"]), textarea, select, [data-make-up-trigger]) {
+[data-absence-design="v2"] :where(input:not([type="checkbox"]):not([type="radio"]):not([autocomplete="one-time-code"]), textarea, select, [data-make-up-trigger]) {
   border-color: var(--absence-control-border);
   border-radius: 0.875rem;
   background-color: var(--absence-surface);
   font-size: 1.0625rem;
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
-[data-form-mode="public"] :where(input, textarea, select)::placeholder { color: var(--color-wi-text-light); opacity: 1; }
-[data-form-mode="public"] :where(input, textarea, select):focus { border-color: var(--color-wi-primary); }
-[data-form-mode="public"] [aria-invalid="true"] { border-color: var(--color-wi-red); }
-[data-form-mode="public"] input:is([type="checkbox"], [type="radio"]) {
+[data-absence-design="v2"] :where(input, textarea, select)::placeholder { color: var(--color-wi-text-light); opacity: 1; }
+[data-absence-design="v2"] :where(input, textarea, select):focus { border-color: var(--color-wi-primary); }
+[data-absence-design="v2"] [aria-invalid="true"] { border-color: var(--color-wi-red); }
+[data-absence-design="v2"] input:is([type="checkbox"], [type="radio"]) {
   accent-color: var(--color-wi-primary);
   inline-size: 1.375rem;
   block-size: 1.375rem;
 }
 
-.absence-app-shell[data-form-mode="public"] {
+.absence-app-shell[data-absence-design="v2"] {
   position: fixed;
   inset-inline: 0;
   inset-block-start: var(--absence-visual-viewport-offset, 0px);
@@ -887,34 +887,34 @@ html {
   min-block-size: min(var(--absence-visual-viewport-height, 100svh), 100svh);
   max-block-size: min(var(--absence-visual-viewport-height, 100dvh), 100dvh);
 }
-.absence-app-shell[data-form-mode="public"] :is(.absence-app-header, .absence-action-bar__inner, .absence-form-content) {
+.absence-app-shell[data-absence-design="v2"] :is(.absence-app-header, .absence-action-bar__inner, .absence-form-content) {
   max-inline-size: 48rem;
   margin-inline: auto;
 }
-.absence-app-shell[data-form-mode="public"] :is(.absence-app-shell__header, .absence-app-shell__main, .absence-app-shell__footer) {
+.absence-app-shell[data-absence-design="v2"] :is(.absence-app-shell__header, .absence-app-shell__main, .absence-app-shell__footer) {
   padding-inline: max(1.25rem, env(safe-area-inset-left)) max(1.25rem, env(safe-area-inset-right));
 }
-.absence-app-shell[data-form-mode="public"] :is(.absence-app-shell__header, .absence-app-shell__footer) {
+.absence-app-shell[data-absence-design="v2"] :is(.absence-app-shell__header, .absence-app-shell__footer) {
   background: var(--absence-surface);
 }
-.absence-app-shell[data-form-mode="public"] .absence-app-header { gap: 1rem; padding-block: 0.375rem 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-app-header__identity { gap: 0.75rem; }
-.absence-app-shell[data-form-mode="public"] .absence-app-header__identity p { font-size: 0.875rem; line-height: 1.4; margin: 0; }
-.absence-app-shell[data-form-mode="public"] .absence-app-header__identity p:first-child { letter-spacing: -0.01em; text-transform: none; color: var(--color-wi-text); font-weight: 650; }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__item { display: block; }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__step { inline-size: 100%; min-block-size: 3rem; padding: 0.375rem; gap: 0.5rem; }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__number { inline-size: 2rem; block-size: 2rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-app-header { gap: 1rem; padding-block: 0.375rem 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-app-header__identity { gap: 0.75rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-app-header__identity p { font-size: 0.875rem; line-height: 1.4; margin: 0; }
+.absence-app-shell[data-absence-design="v2"] .absence-app-header__identity p:first-child { letter-spacing: -0.01em; text-transform: none; color: var(--color-wi-text); font-weight: 650; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__steps { display: grid; grid-template-columns: repeat(var(--absence-step-count, 4), minmax(0, 1fr)); gap: 0.5rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__item { display: block; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__step { inline-size: 100%; min-block-size: 3rem; padding: 0.375rem; gap: 0.5rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__number { inline-size: 2rem; block-size: 2rem; }
 /* The current-step pill is one shared element that glides between steps. */
 .absence-step-progress__indicator { display: none; }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__indicator { display: block; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--absence-selected); }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__step[data-step-state="current"] .absence-step-progress__number { color: var(--absence-on-accent); }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__step[data-step-state="completed"] .absence-step-progress__number { border-color: var(--color-wi-primary); }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__label { display: grid; font-size: 0.875rem; line-height: 1.3; }
-.absence-app-shell[data-form-mode="public"] .absence-step-progress__position { display: none; }
-.absence-app-shell[data-form-mode="public"] .absence-action-bar__spacer { display: none; }
-.absence-app-shell[data-form-mode="public"] .absence-action-bar__inner { flex-wrap: wrap; gap: 0.75rem; }
-.absence-app-shell[data-form-mode="public"] .absence-action-bar__primary {
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__indicator { display: block; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--absence-selected); }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__step[data-step-state="current"] .absence-step-progress__number { color: var(--absence-on-accent); }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__step[data-step-state="completed"] .absence-step-progress__number { border-color: var(--color-wi-primary); }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__label { display: grid; font-size: 0.875rem; line-height: 1.3; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-progress__position { display: none; }
+.absence-app-shell[data-absence-design="v2"] .absence-action-bar__spacer { display: none; }
+.absence-app-shell[data-absence-design="v2"] .absence-action-bar__inner { flex-wrap: wrap; gap: 0.75rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-action-bar__primary {
   flex: 0 1 auto;
   margin-inline-start: auto;
   min-inline-size: min(100%, 14rem);
@@ -922,91 +922,91 @@ html {
   padding: 0.75rem 1.25rem;
   border-radius: 0.875rem;
 }
-.absence-app-shell[data-form-mode="public"] .absence-action-bar__back { min-block-size: 3.125rem; padding-inline: 0.75rem; }
-.absence-app-shell[data-form-mode="public"] .absence-action-bar { padding-block: 0.875rem 0.375rem; }
-.absence-app-shell[data-form-mode="public"] .absence-action-bar__hint { line-height: 1.4; }
-.absence-app-shell[data-form-mode="public"] .absence-form-content { padding-block: 2rem 3rem; }
-.absence-app-shell[data-form-mode="public"] .absence-step-title { font-size: 2rem; font-weight: 650; letter-spacing: -0.035em; line-height: 1.18; text-wrap: balance; }
-.absence-app-shell[data-form-mode="public"] .absence-step-title:focus { outline: none; }
-.absence-app-shell[data-form-mode="public"] .absence-step-heading__help { max-inline-size: 38rem; margin-block-start: 0.75rem; font-size: 1.0625rem; line-height: 1.55; }
-.absence-app-shell[data-form-mode="public"] .absence-student-lookup {
+.absence-app-shell[data-absence-design="v2"] .absence-action-bar__back { min-block-size: 3.125rem; padding-inline: 0.75rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-action-bar { padding-block: 0.875rem 0.375rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-action-bar__hint { line-height: 1.4; }
+.absence-app-shell[data-absence-design="v2"] .absence-form-content { padding-block: 2rem 3rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-title { font-size: 2rem; font-weight: 650; letter-spacing: -0.035em; line-height: 1.18; text-wrap: balance; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-title:focus { outline: none; }
+.absence-app-shell[data-absence-design="v2"] .absence-step-heading__help { max-inline-size: 38rem; margin-block-start: 0.75rem; font-size: 1.0625rem; line-height: 1.55; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-lookup {
   padding: 1.5rem;
   border: 1px solid var(--color-wi-border);
   border-radius: 1.25rem;
   background: var(--absence-surface);
 }
-.absence-app-shell[data-form-mode="public"] .absence-student-lookup > p { margin-block-end: 1.5rem; }
-.absence-app-shell[data-form-mode="public"] .absence-lookup-controls { flex-wrap: wrap; gap: 0.75rem; }
-.absence-app-shell[data-form-mode="public"] .absence-lookup-controls > div { flex-basis: 11rem; }
-.absence-app-shell[data-form-mode="public"] .absence-lookup-controls > button { border-radius: 0.875rem; min-block-size: 3rem; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity > .flex { flex-wrap: wrap; row-gap: 0.5rem; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity > .flex > div { flex: 1 1 10rem; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity__name { font-size: 1.5rem; font-weight: 650; line-height: 1.3; letter-spacing: -0.025em; overflow-wrap: anywhere; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity__name:focus { outline: none; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity__id { margin-block-start: 0.375rem; color: var(--color-wi-text-light); font-size: 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity__id span { font-variant-numeric: tabular-nums; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity__change { flex-shrink: 0; margin-block-start: -0.5rem; font-size: 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-student-identity > .mt-4 { margin-block-start: 1.25rem; border-block-start: 1px solid var(--color-wi-line); padding-block-start: 1.25rem; }
-.absence-app-shell[data-form-mode="public"] .absence-student-context { border-radius: 1.25rem; padding: 1.25rem 1.5rem; }
-.absence-app-shell[data-form-mode="public"] .absence-verification {
+.absence-app-shell[data-absence-design="v2"] .absence-student-lookup > p { margin-block-end: 1.5rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-lookup-controls { flex-wrap: wrap; gap: 0.75rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-lookup-controls > div { flex-basis: 11rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-lookup-controls > button { border-radius: 0.875rem; min-block-size: 3rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity > .flex { flex-wrap: wrap; row-gap: 0.5rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity > .flex > div { flex: 1 1 10rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity__name { font-size: 1.5rem; font-weight: 650; line-height: 1.3; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity__name:focus { outline: none; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity__id { margin-block-start: 0.375rem; color: var(--color-wi-text-light); font-size: 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity__id span { font-variant-numeric: tabular-nums; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity__change { flex-shrink: 0; margin-block-start: -0.5rem; font-size: 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-identity > .mt-4 { margin-block-start: 1.25rem; border-block-start: 1px solid var(--color-wi-line); padding-block-start: 1.25rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-student-context { border-radius: 1.25rem; padding: 1.25rem 1.5rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-verification {
   padding: 1.5rem;
   border: 1px solid var(--color-wi-border);
   border-radius: 1.25rem;
   background: var(--absence-surface);
 }
-.absence-app-shell[data-form-mode="public"] .absence-verification > * + * { margin-block-start: 1.25rem; }
-.absence-app-shell[data-form-mode="public"] .absence-verification button { min-block-size: 2.75rem; min-inline-size: 2.75rem; border-radius: 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-verification [role="status"] { align-items: start; line-height: 1.5; }
-.absence-app-shell[data-form-mode="public"] .absence-verification [role="status"] svg { flex-shrink: 0; margin-block-start: 0.25rem; }
-.absence-app-shell[data-form-mode="public"] .absence-otp-grid { margin-inline: 0; padding: 0.125rem; gap: clamp(0.375rem, 1.5vw, 0.75rem); border-radius: 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-otp-cell { border-color: var(--absence-control-border); border-radius: 0.75rem; font-size: clamp(1.25rem, 5vw, 1.75rem); }
-.absence-app-shell[data-form-mode="public"] .absence-otp-grid:has(input:focus-visible) { outline: 2px solid var(--color-wi-primary); outline-offset: 3px; }
-.absence-app-shell[data-form-mode="public"] .absence-otp-grid input { inline-size: 100%; block-size: 100%; outline: none; }
-.absence-app-shell[data-form-mode="public"] .absence-subject-row { min-block-size: 4.5rem; padding: 1rem 1.25rem; gap: 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-subject-row:has(input:checked) { background: var(--absence-selected); }
-.absence-app-shell[data-form-mode="public"] .absence-subject-row__selected { display: none; }
-.absence-app-shell[data-form-mode="public"] .absence-subject-row:not(:has(input:checked)) .absence-subject-row__check { border-color: var(--absence-control-border); background: var(--absence-surface); }
-.absence-app-shell[data-form-mode="public"] .absence-classes-layout__subjects > section > div { border-radius: 1.125rem; }
-.absence-app-shell[data-form-mode="public"] .absence-classes-layout h2 { font-size: 0.9375rem; font-weight: 600; color: var(--color-wi-text); }
-.absence-app-shell[data-form-mode="public"] .absence-classes-empty { padding: 1.5rem; border: 1px dashed var(--absence-control-border); border-radius: 1.125rem; }
-.absence-app-shell[data-form-mode="public"] .absence-course-block { border-radius: 1.125rem; }
-.absence-app-shell[data-form-mode="public"] .absence-course-heading { padding-block: 1.25rem; }
-.absence-app-shell[data-form-mode="public"] .absence-course-heading h3 { font-size: 1.125rem; letter-spacing: -0.015em; }
-.absence-app-shell[data-form-mode="public"] .absence-course-disclosure svg { transition: transform 160ms ease; }
-.absence-app-shell[data-form-mode="public"] .absence-course-dates { padding: 0 1.25rem; }
-.absence-app-shell[data-form-mode="public"] .absence-session-day { border: 0; border-radius: 0; padding: 1rem 0; background: transparent; opacity: 1; }
-.absence-app-shell[data-form-mode="public"] .absence-session-day + .absence-session-day { border-block-start: 1px solid var(--color-wi-line); margin-block-start: 0; }
-.absence-app-shell[data-form-mode="public"] .absence-session-day__choice { border-radius: 0.5rem; gap: 0.875rem; }
-.absence-app-shell[data-form-mode="public"] .absence-session-day__choice:has(:checked) .absence-session-day__date { color: var(--color-wi-primary); }
-.absence-app-shell[data-form-mode="public"] .absence-session-day__label { display: flex; min-block-size: 3rem; flex-direction: column; justify-content: center; }
-.absence-app-shell[data-form-mode="public"] .absence-session-day__time { display: block; margin-block-start: 0.25rem; color: var(--color-wi-text-light); font-size: 0.9375rem; font-weight: 400; font-variant-numeric: tabular-nums; }
-.absence-app-shell[data-form-mode="public"] .absence-session-makeup { border: 0; margin-block-start: 1rem; margin-inline-start: 0; padding: 1rem; border-radius: 0.875rem; background: var(--color-wi-bg); }
-.absence-app-shell[data-form-mode="public"] .absence-makeup-arrangement { border: 0; padding: 0; background: transparent; }
-.absence-app-shell[data-form-mode="public"] .absence-session-makeup button:not([data-make-up-trigger]) { min-block-size: 2.75rem; min-inline-size: 2.75rem; font-size: 0.875rem; }
-[data-form-mode="public"] .absence-makeup-picker > label { color: var(--color-wi-text); }
-[data-form-mode="public"] .absence-makeup-picker[data-selected="true"] :is([data-make-up-trigger], select) { border-color: var(--color-wi-primary); }
-[data-form-mode="public"] .absence-makeup-native { min-inline-size: 0; max-inline-size: 100%; padding-block: 0.75rem; padding-inline-end: 2rem; text-overflow: ellipsis; }
-.absence-app-shell[data-form-mode="public"] .absence-reason-field { padding: 1.5rem; border: 1px solid var(--color-wi-border); border-radius: 1.125rem; background: var(--absence-surface); }
-.absence-app-shell[data-form-mode="public"] .absence-reason-field textarea { min-block-size: 9rem; }
-.absence-app-shell[data-form-mode="public"] .absence-review__section { overflow: hidden; border-radius: 1.125rem; }
-.absence-app-shell[data-form-mode="public"] .absence-review__section > div:first-child { padding-block: 0.5rem; }
-.absence-app-shell[data-form-mode="public"] .absence-review__section h2 { color: var(--color-wi-text); font-size: 1rem; }
-.absence-app-shell[data-form-mode="public"] .absence-review__nickname { border-radius: 1.125rem; }
-.absence-app-shell[data-form-mode="public"] .absence-review-day { display: grid; gap: 0.625rem; border-block-end: 1px solid var(--color-wi-line); padding-block: 1rem; font-variant-numeric: tabular-nums; }
-.absence-app-shell[data-form-mode="public"] .absence-review-day:last-child { border-block-end: 0; padding-block-end: 0; }
-.absence-app-shell[data-form-mode="public"] .absence-review-day__label { font-weight: 500; color: var(--color-wi-text); }
-.absence-app-shell[data-form-mode="public"] .absence-review-day p:last-child { border-inline-start: 2px solid var(--color-wi-primary); padding-inline-start: 0.75rem; }
-.absence-receipt[data-form-mode="public"] { padding: max(2rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
-.absence-receipt[data-form-mode="public"] > div { max-inline-size: 48rem; }
-.absence-receipt[data-form-mode="public"] > div > div { border-radius: 1.25rem; }
-.absence-receipt[data-form-mode="public"] .absence-receipt__confirmation { border-color: var(--color-wi-border); padding: 2rem; }
-.absence-receipt[data-form-mode="public"] h1 { font-size: 1.75rem; font-weight: 650; letter-spacing: -0.025em; line-height: 1.25; }
-.absence-receipt[data-form-mode="public"] h1:focus { outline: none; }
-.absence-receipt[data-form-mode="public"] .absence-receipt__pair { flex-direction: column; gap: 0.75rem; }
-.absence-receipt[data-form-mode="public"] article { border: 0; border-radius: 0; padding: 1.25rem 0; background: var(--absence-surface); }
-.absence-receipt[data-form-mode="public"] article + article { border-block-start: 1px solid var(--color-wi-line); }
+.absence-app-shell[data-absence-design="v2"] .absence-verification > * + * { margin-block-start: 1.25rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-verification button { min-block-size: 2.75rem; min-inline-size: 2.75rem; border-radius: 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-verification [role="status"] { align-items: start; line-height: 1.5; }
+.absence-app-shell[data-absence-design="v2"] .absence-verification [role="status"] svg { flex-shrink: 0; margin-block-start: 0.25rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-otp-grid { margin-inline: 0; padding: 0.125rem; gap: clamp(0.375rem, 1.5vw, 0.75rem); border-radius: 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-otp-cell { border-color: var(--absence-control-border); border-radius: 0.75rem; font-size: clamp(1.25rem, 5vw, 1.75rem); }
+.absence-app-shell[data-absence-design="v2"] .absence-otp-grid:has(input:focus-visible) { outline: 2px solid var(--color-wi-primary); outline-offset: 3px; }
+.absence-app-shell[data-absence-design="v2"] .absence-otp-grid input { inline-size: 100%; block-size: 100%; outline: none; }
+.absence-app-shell[data-absence-design="v2"] .absence-subject-row { min-block-size: 4.5rem; padding: 1rem 1.25rem; gap: 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-subject-row:has(input:checked) { background: var(--absence-selected); }
+.absence-app-shell[data-absence-design="v2"] .absence-subject-row__selected { display: none; }
+.absence-app-shell[data-absence-design="v2"] .absence-subject-row:not(:has(input:checked)) .absence-subject-row__check { border-color: var(--absence-control-border); background: var(--absence-surface); }
+.absence-app-shell[data-absence-design="v2"] .absence-classes-layout__subjects > section > div { border-radius: 1.125rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-classes-layout h2 { font-size: 0.9375rem; font-weight: 600; color: var(--color-wi-text); }
+.absence-app-shell[data-absence-design="v2"] .absence-classes-empty { padding: 1.5rem; border: 1px dashed var(--absence-control-border); border-radius: 1.125rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-course-block { border-radius: 1.125rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-course-heading { padding-block: 1.25rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-course-heading h3 { font-size: 1.125rem; letter-spacing: -0.015em; }
+.absence-app-shell[data-absence-design="v2"] .absence-course-disclosure svg { transition: transform 160ms ease; }
+.absence-app-shell[data-absence-design="v2"] .absence-course-dates { padding: 0 1.25rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-day { border: 0; border-radius: 0; padding: 1rem 0; background: transparent; opacity: 1; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-day + .absence-session-day { border-block-start: 1px solid var(--color-wi-line); margin-block-start: 0; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-day__choice { border-radius: 0.5rem; gap: 0.875rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-day__choice:has(:checked) .absence-session-day__date { color: var(--color-wi-primary); }
+.absence-app-shell[data-absence-design="v2"] .absence-session-day__label { display: flex; min-block-size: 3rem; flex-direction: column; justify-content: center; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-day__time { display: block; margin-block-start: 0.25rem; color: var(--color-wi-text-light); font-size: 0.9375rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-makeup { border: 0; margin-block-start: 1rem; margin-inline-start: 0; padding: 1rem; border-radius: 0.875rem; background: var(--color-wi-bg); }
+.absence-app-shell[data-absence-design="v2"] .absence-makeup-arrangement { border: 0; padding: 0; background: transparent; }
+.absence-app-shell[data-absence-design="v2"] .absence-session-makeup button:not([data-make-up-trigger]) { min-block-size: 2.75rem; min-inline-size: 2.75rem; font-size: 0.875rem; }
+[data-absence-design="v2"] .absence-makeup-picker > label { color: var(--color-wi-text); }
+[data-absence-design="v2"] .absence-makeup-picker[data-selected="true"] :is([data-make-up-trigger], select) { border-color: var(--color-wi-primary); }
+[data-absence-design="v2"] .absence-makeup-native { min-inline-size: 0; max-inline-size: 100%; padding-block: 0.75rem; padding-inline-end: 2rem; text-overflow: ellipsis; }
+.absence-app-shell[data-absence-design="v2"] .absence-reason-field { padding: 1.5rem; border: 1px solid var(--color-wi-border); border-radius: 1.125rem; background: var(--absence-surface); }
+.absence-app-shell[data-absence-design="v2"] .absence-reason-field textarea { min-block-size: 9rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-review__section { overflow: hidden; border-radius: 1.125rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-review__section > div:first-child { padding-block: 0.5rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-review__section h2 { color: var(--color-wi-text); font-size: 1rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-review__nickname { border-radius: 1.125rem; }
+.absence-app-shell[data-absence-design="v2"] .absence-review-day { display: grid; gap: 0.625rem; border-block-end: 1px solid var(--color-wi-line); padding-block: 1rem; font-variant-numeric: tabular-nums; }
+.absence-app-shell[data-absence-design="v2"] .absence-review-day:last-child { border-block-end: 0; padding-block-end: 0; }
+.absence-app-shell[data-absence-design="v2"] .absence-review-day__label { font-weight: 500; color: var(--color-wi-text); }
+.absence-app-shell[data-absence-design="v2"] .absence-review-day p:last-child { border-inline-start: 2px solid var(--color-wi-primary); padding-inline-start: 0.75rem; }
+.absence-receipt[data-absence-design="v2"] { padding: max(2rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
+.absence-receipt[data-absence-design="v2"] > div { max-inline-size: 48rem; }
+.absence-receipt[data-absence-design="v2"] > div > div { border-radius: 1.25rem; }
+.absence-receipt[data-absence-design="v2"] .absence-receipt__confirmation { border-color: var(--color-wi-border); padding: 2rem; }
+.absence-receipt[data-absence-design="v2"] h1 { font-size: 1.75rem; font-weight: 650; letter-spacing: -0.025em; line-height: 1.25; }
+.absence-receipt[data-absence-design="v2"] h1:focus { outline: none; }
+.absence-receipt[data-absence-design="v2"] .absence-receipt__pair { flex-direction: column; gap: 0.75rem; }
+.absence-receipt[data-absence-design="v2"] article { border: 0; border-radius: 0; padding: 1.25rem 0; background: var(--absence-surface); }
+.absence-receipt[data-absence-design="v2"] article + article { border-block-start: 1px solid var(--color-wi-line); }
 
-.absence-mobile-sheet[data-form-mode="public"] {
+.absence-mobile-sheet[data-absence-design="v2"] {
   position: fixed;
   inset-block-start: var(--absence-sheet-offset, 0px);
   inset-block-end: auto;
@@ -1015,8 +1015,8 @@ html {
   overflow: hidden;
   margin-block: 0;
 }
-.absence-mobile-sheet[data-form-mode="public"][open] { display: flex; align-items: end; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__surface {
+.absence-mobile-sheet[data-absence-design="v2"][open] { display: flex; align-items: end; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__surface {
   inline-size: 100%;
   block-size: min(calc(var(--absence-sheet-height, 100dvh) - 1rem), 44rem);
   max-block-size: min(calc(var(--absence-sheet-height, 100dvh) - 1rem), 44rem);
@@ -1024,44 +1024,44 @@ html {
   border-radius: 1.5rem 1.5rem 0 0;
   background: var(--absence-surface);
 }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__content { display: block; flex: 1 1 0; min-block-size: min(4rem, calc(var(--absence-sheet-height, 100dvh) * 0.2)); overflow-y: auto; overscroll-behavior: contain; padding: 0.25rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header h2 { padding-block-start: 0.5rem; font-size: 1.375rem; line-height: 1.3; letter-spacing: -0.02em; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header > div { flex-wrap: wrap-reverse; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header h2 { flex: 1 1 11rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__body { margin-block-start: 1rem; max-block-size: none; overflow: visible; padding: 0.25rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__footer { padding-block-end: 0.25rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-makeup-option { cursor: pointer; border-color: var(--absence-control-border); }
-.absence-mobile-sheet[data-form-mode="public"] .absence-makeup-option:has(:checked) { border-color: var(--color-wi-primary); background: var(--absence-selected); }
-.absence-mobile-sheet[data-form-mode="public"] .absence-makeup-option:has(:disabled) { cursor: not-allowed; background: var(--color-wi-bg); }
-.absence-mobile-sheet[data-form-mode="public"] .absence-makeup-option:has(:focus-visible) { outline: 2px solid var(--color-wi-primary); outline-offset: 1px; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__content { display: block; flex: 1 1 0; min-block-size: min(4rem, calc(var(--absence-sheet-height, 100dvh) * 0.2)); overflow-y: auto; overscroll-behavior: contain; padding: 0.25rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header h2 { padding-block-start: 0.5rem; font-size: 1.375rem; line-height: 1.3; letter-spacing: -0.02em; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header > div { flex-wrap: wrap-reverse; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header h2 { flex: 1 1 11rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__body { margin-block-start: 1rem; max-block-size: none; overflow: visible; padding: 0.25rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__footer { padding-block-end: 0.25rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-makeup-option { cursor: pointer; border-color: var(--absence-control-border); }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-makeup-option:has(:checked) { border-color: var(--color-wi-primary); background: var(--absence-selected); }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-makeup-option:has(:disabled) { cursor: not-allowed; background: var(--color-wi-bg); }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-makeup-option:has(:focus-visible) { outline: 2px solid var(--color-wi-primary); outline-offset: 1px; }
 
 /* Selection stays attached to its missed class while other times are browsed. */
-[data-form-mode="public"] .absence-session-day__choice { padding: 0.625rem; margin-inline: -0.625rem; }
-[data-form-mode="public"] .absence-session-day[data-selected="true"] > .absence-session-day__choice { background: var(--absence-selected); border-radius: 0.875rem; }
-[data-form-mode="public"] .absence-makeup-change { display: block; margin-block-start: 0.5rem; color: var(--color-wi-primary); font-size: 0.9375rem; font-weight: 600; }
-[data-form-mode="public"] .absence-makeup-picker[data-invalid="true"] :is([data-make-up-trigger], select) { border-color: var(--color-wi-amber); }
-[data-form-mode="public"] .absence-makeup-invalid { border-inline-start: 3px solid var(--color-wi-amber); padding-inline-start: 0.75rem; color: var(--color-wi-amber); font-size: 0.9375rem; line-height: 1.5; }
-[data-form-mode="public"] .absence-makeup-current { margin-block-start: 0.75rem; border-radius: 0.875rem; background: var(--absence-selected); padding: 0.625rem 0.875rem; }
-[data-form-mode="public"] .absence-makeup-current > span { color: var(--color-wi-primary); font-size: 0.875rem; font-weight: 600; }
-[data-form-mode="public"] .absence-makeup-current > p { margin-block-start: 0.25rem; font-size: 1rem; font-weight: 600; }
-[data-form-mode="public"] .absence-makeup-current[data-invalid="true"] { background: var(--color-wi-amber-bg); }
-[data-form-mode="public"] .absence-makeup-current[data-invalid="true"] > span { color: var(--color-wi-amber); }
-[data-form-mode="public"] .absence-makeup-option { align-items: flex-start; gap: 0.875rem; padding: 1rem; border-radius: 1rem; }
-[data-form-mode="public"] .absence-makeup-option > input { margin-block-start: 0.125rem; }
-[data-form-mode="public"] .absence-makeup-option > span > span:first-child { font-variant-numeric: tabular-nums; }
-[data-form-mode="public"] .absence-makeup-option__current { display: inline-block; margin-block-start: 0.5rem; color: var(--color-wi-primary); font-size: 0.875rem; font-weight: 600; }
+[data-absence-design="v2"] .absence-session-day__choice { padding: 0.625rem; margin-inline: -0.625rem; }
+[data-absence-design="v2"] .absence-session-day[data-selected="true"] > .absence-session-day__choice { background: var(--absence-selected); border-radius: 0.875rem; }
+[data-absence-design="v2"] .absence-makeup-change { display: block; margin-block-start: 0.5rem; color: var(--color-wi-primary); font-size: 0.9375rem; font-weight: 600; }
+[data-absence-design="v2"] .absence-makeup-picker[data-invalid="true"] :is([data-make-up-trigger], select) { border-color: var(--color-wi-amber); }
+[data-absence-design="v2"] .absence-makeup-invalid { border-inline-start: 3px solid var(--color-wi-amber); padding-inline-start: 0.75rem; color: var(--color-wi-amber); font-size: 0.9375rem; line-height: 1.5; }
+[data-absence-design="v2"] .absence-makeup-current { margin-block-start: 0.75rem; border-radius: 0.875rem; background: var(--absence-selected); padding: 0.625rem 0.875rem; }
+[data-absence-design="v2"] .absence-makeup-current > span { color: var(--color-wi-primary); font-size: 0.875rem; font-weight: 600; }
+[data-absence-design="v2"] .absence-makeup-current > p { margin-block-start: 0.25rem; font-size: 1rem; font-weight: 600; }
+[data-absence-design="v2"] .absence-makeup-current[data-invalid="true"] { background: var(--color-wi-amber-bg); }
+[data-absence-design="v2"] .absence-makeup-current[data-invalid="true"] > span { color: var(--color-wi-amber); }
+[data-absence-design="v2"] .absence-makeup-option { align-items: flex-start; gap: 0.875rem; padding: 1rem; border-radius: 1rem; }
+[data-absence-design="v2"] .absence-makeup-option > input { margin-block-start: 0.125rem; }
+[data-absence-design="v2"] .absence-makeup-option > span > span:first-child { font-variant-numeric: tabular-nums; }
+[data-absence-design="v2"] .absence-makeup-option__current { display: inline-block; margin-block-start: 0.5rem; color: var(--color-wi-primary); font-size: 0.875rem; font-weight: 600; }
 .absence-makeup-option__reason { display: flex; gap: 0.5rem; margin-block-start: 0.625rem; color: var(--color-wi-text-light); font-size: 0.9375rem; font-weight: 500; line-height: 1.5; }
-[data-form-mode="public"] .absence-makeup-option[data-unavailable="true"] { border-color: var(--color-wi-border); }
-[data-form-mode="public"] .absence-makeup-option__reason > svg { margin-block-start: 0.1875rem; }
-[data-form-mode="public"] .absence-makeup-more { margin-block-start: 1rem; }
-[data-form-mode="public"] .absence-makeup-more__button { display: inline-flex; justify-content: center; align-items: center; gap: 0.5rem; min-block-size: 3rem; inline-size: 100%; padding: 0.75rem 1rem; border: 1px solid var(--absence-control-border); border-radius: 0.875rem; background: var(--absence-surface); color: var(--color-wi-primary); font-size: 1rem; font-weight: 600; }
-[data-form-mode="public"] .absence-makeup-more__button:disabled { color: var(--color-wi-text-light); }
-[data-form-mode="public"] .absence-makeup-more__error { margin-block-end: 0.5rem; color: var(--color-wi-amber); font-size: 0.9375rem; line-height: 1.5; }
-[data-form-mode="public"] .absence-makeup-remove { min-block-size: 3rem; margin-block-start: 0.75rem; padding: 0.625rem 0.25rem; color: var(--color-wi-primary); font-size: 0.9375rem; font-weight: 500; }
-[data-form-mode="public"] .absence-makeup-empty { margin-block-end: 1rem; padding: 1rem; border-radius: 0.875rem; background: var(--color-wi-bg); }
-[data-form-mode="public"] .absence-makeup-support { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin-block-start: 0.5rem; }
-[data-form-mode="public"] .absence-makeup-support > a { display: inline-flex; align-items: center; min-block-size: 2.75rem; color: var(--color-wi-primary); font-size: 0.9375rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
-[data-form-mode="public"] .absence-makeup-support > a:focus-visible { outline: 2px solid var(--color-wi-primary); outline-offset: 3px; }
+[data-absence-design="v2"] .absence-makeup-option[data-unavailable="true"] { border-color: var(--color-wi-border); }
+[data-absence-design="v2"] .absence-makeup-option__reason > svg { margin-block-start: 0.1875rem; }
+[data-absence-design="v2"] .absence-makeup-more { margin-block-start: 1rem; }
+[data-absence-design="v2"] .absence-makeup-more__button { display: inline-flex; justify-content: center; align-items: center; gap: 0.5rem; min-block-size: 3rem; inline-size: 100%; padding: 0.75rem 1rem; border: 1px solid var(--absence-control-border); border-radius: 0.875rem; background: var(--absence-surface); color: var(--color-wi-primary); font-size: 1rem; font-weight: 600; }
+[data-absence-design="v2"] .absence-makeup-more__button:disabled { color: var(--color-wi-text-light); }
+[data-absence-design="v2"] .absence-makeup-more__error { margin-block-end: 0.5rem; color: var(--color-wi-amber); font-size: 0.9375rem; line-height: 1.5; }
+[data-absence-design="v2"] .absence-makeup-remove { min-block-size: 3rem; margin-block-start: 0.75rem; padding: 0.625rem 0.25rem; color: var(--color-wi-primary); font-size: 0.9375rem; font-weight: 500; }
+[data-absence-design="v2"] .absence-makeup-empty { margin-block-end: 1rem; padding: 1rem; border-radius: 0.875rem; background: var(--color-wi-bg); }
+[data-absence-design="v2"] .absence-makeup-support { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin-block-start: 0.5rem; }
+[data-absence-design="v2"] .absence-makeup-support > a { display: inline-flex; align-items: center; min-block-size: 2.75rem; color: var(--color-wi-primary); font-size: 0.9375rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+[data-absence-design="v2"] .absence-makeup-support > a:focus-visible { outline: 2px solid var(--color-wi-primary); outline-offset: 3px; }
 
 /* Make-up sheet date strip: month caption plus day chips that filter the list.
    Reasons stay on the options themselves; a chip only signals selectability. */
@@ -1119,77 +1119,77 @@ html {
   .absence-makeup-day:has(.absence-makeup-day__input:checked) { border-color: Highlight; }
   .absence-makeup-day__unavailable { background: CanvasText; }
 }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header > div { display: grid; gap: 0.5rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__navigation { flex-shrink: 0; margin-block-end: 0.5rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__cancel { margin-inline-start: -0.5rem; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header { flex-shrink: 1; min-block-size: 0; max-block-size: calc(var(--absence-sheet-height, 100dvh) * 0.38); overflow-y: auto; overscroll-behavior: contain; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header:focus-visible { outline: 2px solid var(--color-wi-primary); outline-offset: -2px; border-radius: 0.5rem; }
-.absence-mobile-sheet[data-form-mode="public"][data-keyboard-open="true"] .absence-makeup-current { display: none; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__header h2 { padding-block-start: 0; }
-.absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__footer { border-block-start: 1px solid var(--color-wi-line); padding-block-start: 1rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header > div { display: grid; gap: 0.5rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__navigation { flex-shrink: 0; margin-block-end: 0.5rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__cancel { margin-inline-start: -0.5rem; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header { flex-shrink: 1; min-block-size: 0; max-block-size: calc(var(--absence-sheet-height, 100dvh) * 0.38); overflow-y: auto; overscroll-behavior: contain; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header:focus-visible { outline: 2px solid var(--color-wi-primary); outline-offset: -2px; border-radius: 0.5rem; }
+.absence-mobile-sheet[data-absence-design="v2"][data-keyboard-open="true"] .absence-makeup-current { display: none; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__header h2 { padding-block-start: 0; }
+.absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__footer { border-block-start: 1px solid var(--color-wi-line); padding-block-start: 1rem; }
 
 @media (hover: hover) {
-  [data-form-mode="public"] :where(input, textarea, select, [data-make-up-trigger]):hover:not(:disabled):not(:focus):not([aria-invalid="true"]) { border-color: var(--color-wi-text); }
-  .absence-app-shell[data-form-mode="public"] .absence-session-day__choice:hover:has(input:not(:disabled)) { background: var(--color-wi-row-alt); }
-  .absence-mobile-sheet[data-form-mode="public"] .absence-makeup-option:hover:not(:has(:disabled)) { border-color: var(--color-wi-primary); }
+  [data-absence-design="v2"] :where(input, textarea, select, [data-make-up-trigger]):hover:not(:disabled):not(:focus):not([aria-invalid="true"]) { border-color: var(--color-wi-text); }
+  .absence-app-shell[data-absence-design="v2"] .absence-session-day__choice:hover:has(input:not(:disabled)) { background: var(--color-wi-row-alt); }
+  .absence-mobile-sheet[data-absence-design="v2"] .absence-makeup-option:hover:not(:has(:disabled)) { border-color: var(--color-wi-primary); }
 }
 
 @media (max-width: 639px) {
-  .absence-app-shell[data-form-mode="public"] :is(.absence-app-shell__header, .absence-app-shell__main, .absence-app-shell__footer) { padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right)); }
-  .absence-app-shell[data-form-mode="public"] .absence-app-header__identity { flex-wrap: wrap; row-gap: 0.125rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-step-progress__step { flex-direction: column; min-block-size: 3.875rem; gap: 0.375rem; padding-block: 0.5rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-step-progress__number { inline-size: 1.75rem; block-size: 1.75rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-step-progress__label { text-align: center; font-size: 0.8125rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-action-bar__inner { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: min(0.75rem, 12px); }
-  .absence-app-shell[data-form-mode="public"] .absence-action-bar__primary { inline-size: 100%; min-inline-size: 0; padding-inline: min(1.25rem, 20px); }
-  .absence-app-shell[data-form-mode="public"] .absence-action-bar__primary:only-of-type { grid-column: 1 / -1; }
-  .absence-app-shell[data-form-mode="public"] .absence-action-bar__back { padding-inline: min(0.5rem, 8px); }
-  .absence-app-shell[data-form-mode="public"] .absence-action-bar__primary svg { display: none; }
-  .absence-app-shell[data-form-mode="public"] .absence-form-content { padding-block: 1.75rem 2rem; }
-  .absence-app-shell[data-form-mode="public"] :is(.absence-student-lookup, .absence-verification, .absence-reason-field) { padding: 1.25rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-lookup-controls > button { flex-grow: 1; }
-  .absence-app-shell[data-form-mode="public"] .absence-classes-layout__work > section > .flex { flex-wrap: wrap; gap: 0.5rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-course-disclosure { inline-size: 100%; text-align: start; }
-  .absence-app-shell[data-form-mode="public"] .absence-review__section > div:first-child { flex-wrap: wrap; }
-  .absence-app-shell[data-form-mode="public"] .absence-session-makeup { padding: 0.875rem; }
-  .absence-receipt[data-form-mode="public"] .absence-receipt__confirmation { padding: 1.5rem; }
-  .absence-receipt[data-form-mode="public"] .absence-receipt__confirmation > div { align-items: start; }
+  .absence-app-shell[data-absence-design="v2"] :is(.absence-app-shell__header, .absence-app-shell__main, .absence-app-shell__footer) { padding-inline: max(1rem, env(safe-area-inset-left)) max(1rem, env(safe-area-inset-right)); }
+  .absence-app-shell[data-absence-design="v2"] .absence-app-header__identity { flex-wrap: wrap; row-gap: 0.125rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-step-progress__step { flex-direction: column; min-block-size: 3.875rem; gap: 0.375rem; padding-block: 0.5rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-step-progress__number { inline-size: 1.75rem; block-size: 1.75rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-step-progress__label { text-align: center; font-size: 0.8125rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-action-bar__inner { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: min(0.75rem, 12px); }
+  .absence-app-shell[data-absence-design="v2"] .absence-action-bar__primary { inline-size: 100%; min-inline-size: 0; padding-inline: min(1.25rem, 20px); }
+  .absence-app-shell[data-absence-design="v2"] .absence-action-bar__primary:only-of-type { grid-column: 1 / -1; }
+  .absence-app-shell[data-absence-design="v2"] .absence-action-bar__back { padding-inline: min(0.5rem, 8px); }
+  .absence-app-shell[data-absence-design="v2"] .absence-action-bar__primary svg { display: none; }
+  .absence-app-shell[data-absence-design="v2"] .absence-form-content { padding-block: 1.75rem 2rem; }
+  .absence-app-shell[data-absence-design="v2"] :is(.absence-student-lookup, .absence-verification, .absence-reason-field) { padding: 1.25rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-lookup-controls > button { flex-grow: 1; }
+  .absence-app-shell[data-absence-design="v2"] .absence-classes-layout__work > section > .flex { flex-wrap: wrap; gap: 0.5rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-course-disclosure { inline-size: 100%; text-align: start; }
+  .absence-app-shell[data-absence-design="v2"] .absence-review__section > div:first-child { flex-wrap: wrap; }
+  .absence-app-shell[data-absence-design="v2"] .absence-session-makeup { padding: 0.875rem; }
+  .absence-receipt[data-absence-design="v2"] .absence-receipt__confirmation { padding: 1.5rem; }
+  .absence-receipt[data-absence-design="v2"] .absence-receipt__confirmation > div { align-items: start; }
 }
 
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-app-header__identity { display: none; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-app-header { padding-block: 4px; gap: 0; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-step-progress { gap: 0; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-action-bar { padding-block: 8px 4px; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-action-bar__back { min-inline-size: 44px; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-action-bar__back span { display: none; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-step-progress__steps { display: none; }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-step-progress__position { display: block; margin: 0; text-align: start; font-size: 0.875rem; color: var(--color-wi-text-light); }
-.absence-app-shell[data-form-mode="public"][data-keyboard-open="true"] .absence-reason-field textarea { min-block-size: min(9rem, max(3rem, calc(var(--absence-visual-viewport-height) * 0.3))); }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-app-header__identity { display: none; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-app-header { padding-block: 4px; gap: 0; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-step-progress { gap: 0; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-action-bar { padding-block: 8px 4px; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-action-bar__back { min-inline-size: 44px; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-action-bar__back span { display: none; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-step-progress__steps { display: none; }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-step-progress__position { display: block; margin: 0; text-align: start; font-size: 0.875rem; color: var(--color-wi-text-light); }
+.absence-app-shell[data-absence-design="v2"][data-keyboard-open="true"] .absence-reason-field textarea { min-block-size: min(9rem, max(3rem, calc(var(--absence-visual-viewport-height) * 0.3))); }
 
 @media (min-width: 768px) {
-  .absence-app-shell[data-form-mode="public"] .absence-app-header { grid-template-columns: minmax(0, 1fr); }
-  .absence-app-shell[data-form-mode="public"] .absence-app-header__identity { display: flex; }
-  .absence-app-shell[data-form-mode="public"] .absence-form-content { padding-block-start: 1rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-step-title { font-size: 2.25rem; }
-  .absence-mobile-sheet[data-form-mode="public"][open] { align-items: center; }
-  .absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__surface { border-radius: 1.5rem; block-size: auto; inline-size: min(100%, 34rem); }
+  .absence-app-shell[data-absence-design="v2"] .absence-app-header { grid-template-columns: minmax(0, 1fr); }
+  .absence-app-shell[data-absence-design="v2"] .absence-app-header__identity { display: flex; }
+  .absence-app-shell[data-absence-design="v2"] .absence-form-content { padding-block-start: 1rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-step-title { font-size: 2.25rem; }
+  .absence-mobile-sheet[data-absence-design="v2"][open] { align-items: center; }
+  .absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__surface { border-radius: 1.5rem; block-size: auto; inline-size: min(100%, 34rem); }
   /* Centered dialog sizes to its content; the list scrolls only past the cap. */
-  .absence-mobile-sheet[data-form-mode="public"] .absence-mobile-sheet__content { flex: 1 1 auto; }
-  .absence-mobile-sheet[data-form-mode="public"][open] { justify-content: center; }
+  .absence-mobile-sheet[data-absence-design="v2"] .absence-mobile-sheet__content { flex: 1 1 auto; }
+  .absence-mobile-sheet[data-absence-design="v2"][open] { justify-content: center; }
 }
 
 @media (max-height: 500px) and (min-width: 640px) {
-  .absence-app-shell[data-form-mode="public"] .absence-app-header { gap: 0.375rem; padding-block: 0 0.5rem; }
-  .absence-app-shell[data-form-mode="public"] .absence-action-bar__hint:not([role="status"]) { display: none; }
+  .absence-app-shell[data-absence-design="v2"] .absence-app-header { gap: 0.375rem; padding-block: 0 0.5rem; }
+  .absence-app-shell[data-absence-design="v2"] .absence-action-bar__hint:not([role="status"]) { display: none; }
 }
 
 @media (prefers-contrast: more) {
-  [data-form-mode="public"] { --color-wi-border: var(--absence-control-border); --color-wi-line: var(--absence-control-border); }
-  [data-form-mode="public"] :where(button, input, textarea, select):focus-visible { outline-width: 3px; }
+  [data-absence-design="v2"] { --color-wi-border: var(--absence-control-border); --color-wi-line: var(--absence-control-border); }
+  [data-absence-design="v2"] :where(button, input, textarea, select):focus-visible { outline-width: 3px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-form-mode="public"] *, [data-form-mode="public"] *::before, [data-form-mode="public"] *::after {
+  [data-absence-design="v2"] *, [data-absence-design="v2"] *::before, [data-absence-design="v2"] *::after {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
@@ -1197,51 +1197,51 @@ html {
 }
 
 @media (forced-colors: active) {
-  [data-form-mode="public"] .absence-subject-row:has(:checked) .absence-subject-row__check { border-color: Highlight; background: Highlight; color: HighlightText; forced-color-adjust: none; }
-  [data-form-mode="public"] .absence-makeup-option:has(:checked) { outline: 2px solid Highlight; }
-  [data-form-mode="public"] .absence-step-progress__step[data-step-state="current"] { outline: 2px solid Highlight; }
+  [data-absence-design="v2"] .absence-subject-row:has(:checked) .absence-subject-row__check { border-color: Highlight; background: Highlight; color: HighlightText; forced-color-adjust: none; }
+  [data-absence-design="v2"] .absence-makeup-option:has(:checked) { outline: 2px solid Highlight; }
+  [data-absence-design="v2"] .absence-step-progress__step[data-step-state="current"] { outline: 2px solid Highlight; }
 }
 
 /* Public absence micro-interactions. State changes ease rather than snap; every
    motion acknowledges a tap, connects origin to result, or reports a change.
    Durations are budgets that never delay input, and all of it is opt-in to
    users who have not asked for reduced motion. */
-[data-form-mode="public"] {
+[data-absence-design="v2"] {
   --absence-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --absence-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  [data-form-mode="public"] :where(input, textarea, select, [data-make-up-trigger]),
-  [data-form-mode="public"] :is(.absence-subject-row, .absence-subject-row__check, .absence-session-day__choice, .absence-session-day__date, .absence-makeup-option, .absence-makeup-day, .absence-step-progress__number) {
+  [data-absence-design="v2"] :where(input, textarea, select, [data-make-up-trigger]),
+  [data-absence-design="v2"] :is(.absence-subject-row, .absence-subject-row__check, .absence-session-day__choice, .absence-session-day__date, .absence-makeup-option, .absence-makeup-day, .absence-step-progress__number) {
     transition: color 160ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 140ms var(--absence-ease-out);
   }
 
   /* Acknowledge the press without moving layout. */
-  [data-form-mode="public"] [data-make-up-trigger]:active:not(:disabled) { transform: scale(0.985); }
-  [data-form-mode="public"] .absence-makeup-day:active:not([data-day-state="unavailable"]) { transform: scale(0.95); }
-  [data-form-mode="public"] .absence-makeup-option:active:not(:has(:disabled)) { transform: scale(0.99); }
-  .absence-app-shell[data-form-mode="public"] .absence-subject-row:active { background: var(--color-wi-row-alt); }
+  [data-absence-design="v2"] [data-make-up-trigger]:active:not(:disabled) { transform: scale(0.985); }
+  [data-absence-design="v2"] .absence-makeup-day:active:not([data-day-state="unavailable"]) { transform: scale(0.95); }
+  [data-absence-design="v2"] .absence-makeup-option:active:not(:has(:disabled)) { transform: scale(0.99); }
+  .absence-app-shell[data-absence-design="v2"] .absence-subject-row:active { background: var(--color-wi-row-alt); }
 
   /* Ticking a course: the check lands with a small settle. */
-  .absence-app-shell[data-form-mode="public"] .absence-subject-row__check svg { animation: absence-check-in 220ms var(--absence-ease-out); }
+  .absence-app-shell[data-absence-design="v2"] .absence-subject-row__check svg { animation: absence-check-in 220ms var(--absence-ease-out); }
 
   /* Problems arrive near their cause and settle into place once. */
-  .absence-app-shell[data-form-mode="public"] :is([role="alert"], .absence-makeup-invalid, [id$="-error"]) { animation: absence-rise-in 200ms var(--absence-ease-out); }
+  .absence-app-shell[data-absence-design="v2"] :is([role="alert"], .absence-makeup-invalid, [id$="-error"]) { animation: absence-rise-in 200ms var(--absence-ease-out); }
 
   /* Bottom sheet rises from the edge it belongs to; the scrim fades separately. */
-  .absence-mobile-sheet[data-form-mode="public"][open] .absence-mobile-sheet__surface { animation: absence-sheet-in 360ms var(--absence-ease-sheet); }
-  .absence-mobile-sheet[data-form-mode="public"][open]::backdrop { animation: absence-fade-in 240ms ease-out; }
+  .absence-mobile-sheet[data-absence-design="v2"][open] .absence-mobile-sheet__surface { animation: absence-sheet-in 360ms var(--absence-ease-sheet); }
+  .absence-mobile-sheet[data-absence-design="v2"][open]::backdrop { animation: absence-fade-in 240ms ease-out; }
 
   /* Receipt: only after the server confirms, the check draws and the summary follows. */
-  .absence-receipt[data-form-mode="public"] .absence-receipt__confirmation { animation: absence-rise-in 320ms var(--absence-ease-out) both; }
-  .absence-receipt[data-form-mode="public"] .absence-receipt__classes { animation: absence-rise-in 320ms var(--absence-ease-out) 90ms both; }
-  .absence-receipt[data-form-mode="public"] .absence-receipt__check { animation: absence-check-in 360ms var(--absence-ease-out) 120ms both; }
-  .absence-receipt[data-form-mode="public"] .absence-receipt__check path { stroke-dasharray: 1; animation: absence-draw 480ms var(--absence-ease-out) 200ms both; }
+  .absence-receipt[data-absence-design="v2"] .absence-receipt__confirmation { animation: absence-rise-in 320ms var(--absence-ease-out) both; }
+  .absence-receipt[data-absence-design="v2"] .absence-receipt__classes { animation: absence-rise-in 320ms var(--absence-ease-out) 90ms both; }
+  .absence-receipt[data-absence-design="v2"] .absence-receipt__check { animation: absence-check-in 360ms var(--absence-ease-out) 120ms both; }
+  .absence-receipt[data-absence-design="v2"] .absence-receipt__check path { stroke-dasharray: 1; animation: absence-draw 480ms var(--absence-ease-out) 200ms both; }
 }
 
 @media (prefers-reduced-motion: no-preference) and (min-width: 768px) {
-  .absence-mobile-sheet[data-form-mode="public"][open] .absence-mobile-sheet__surface { animation: absence-dialog-in 240ms var(--absence-ease-out); }
+  .absence-mobile-sheet[data-absence-design="v2"][open] .absence-mobile-sheet__surface { animation: absence-dialog-in 240ms var(--absence-ease-out); }
 }
 
 @keyframes absence-check-in { from { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } to { transform: scale(1); } }
