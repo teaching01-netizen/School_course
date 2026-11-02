@@ -90,7 +90,8 @@ func TestResolveMappedSatVerbalSitIn_MergedMissedCourseOffersNonMergedTarget(t *
 		t.Fatal(err)
 	}
 
-	date := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	// Future date: sit-ins before the request day are filtered out.
+	date := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 14)
 	createSession := func(courseID pgtype.UUID, hour int) pgtype.UUID {
 		t.Helper()
 		row, createErr := qtx.SessionCreate(ctx, sqldb.SessionCreateParams{

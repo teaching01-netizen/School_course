@@ -536,12 +536,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "Reading Mastery",
     subject: "Reading",
     ruleType: "rank_chain",
-    priorityCount: 1,
+    priorityCount: 2,
     description:
-      "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
+      "1st: opposite rank (Rank 3 ↔ Rank 2). 2nd: the student's own rank. Direction depends on student's current rank.",
     makeupRules: [
-      "If student is Rank 3 → makeup in Rank 2",
-      "If student is Rank 2 → makeup in Rank 3",
+      "1st Priority: Rank 3 student → Rank 2; Rank 2 student → Rank 3",
+      "2nd Priority: Rank 3 student → Rank 3; Rank 2 student → Rank 2",
     ],
     lastClassExcluded: true,
     eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
@@ -552,6 +552,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
         label: "1st Priority: Opposite rank (Rank 3 ↔ Rank 2)",
         eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
       },
+      {
+        level: 2,
+        ruleType: "rank_chain",
+        label: "2nd Priority: Own rank (Rank 3 / Rank 2)",
+        eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
+      },
     ],
   },
   {
@@ -559,12 +565,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "Writing Wisdom",
     subject: "Writing",
     ruleType: "rank_chain",
-    priorityCount: 1,
+    priorityCount: 2,
     description:
-      "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
+      "1st: opposite rank (Rank 3 ↔ Rank 2). 2nd: the student's own rank. Direction depends on student's current rank.",
     makeupRules: [
-      "If student is Rank 3 → makeup in Rank 2",
-      "If student is Rank 2 → makeup in Rank 3",
+      "1st Priority: Rank 3 student → Rank 2; Rank 2 student → Rank 3",
+      "2nd Priority: Rank 3 student → Rank 3; Rank 2 student → Rank 2",
     ],
     lastClassExcluded: true,
     eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
@@ -573,6 +579,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
         level: 1,
         ruleType: "rank_chain",
         label: "1st Priority: Opposite rank (Rank 3 ↔ Rank 2)",
+        eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
+      },
+      {
+        level: 2,
+        ruleType: "rank_chain",
+        label: "2nd Priority: Own rank (Rank 3 / Rank 2)",
         eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
       },
     ],
@@ -664,12 +676,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Knock Out",
     subject: "Knock Out",
     ruleType: "rank_chain",
-    priorityCount: 1,
+    priorityCount: 2,
     description:
-      "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
+      "1st: opposite rank (Rank 3 ↔ Rank 2). 2nd: the student's own rank. Direction depends on student's current rank.",
     makeupRules: [
-      "If student is Rank 3 → makeup in Rank 2",
-      "If student is Rank 2 → makeup in Rank 3",
+      "1st Priority: Rank 3 student → Rank 2; Rank 2 student → Rank 3",
+      "2nd Priority: Rank 3 student → Rank 3; Rank 2 student → Rank 2",
     ],
     lastClassExcluded: true,
     eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
@@ -678,6 +690,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
         level: 1,
         ruleType: "rank_chain",
         label: "1st Priority: Opposite rank (Rank 3 ↔ Rank 2)",
+        eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
+      },
+      {
+        level: 2,
+        ruleType: "rank_chain",
+        label: "2nd Priority: Own rank (Rank 3 / Rank 2)",
         eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
       },
     ],
@@ -689,12 +707,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Intensive",
     subject: "Intensive",
     ruleType: "rank_chain",
-    priorityCount: 1,
+    priorityCount: 2,
     description:
-      "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
+      "1st: opposite rank (Rank 3 ↔ Rank 2). 2nd: the student's own rank. Direction depends on student's current rank.",
     makeupRules: [
-      "If student is Rank 3 → makeup in Rank 2",
-      "If student is Rank 2 → makeup in Rank 3",
+      "1st Priority: Rank 3 student → Rank 2; Rank 2 student → Rank 3",
+      "2nd Priority: Rank 3 student → Rank 3; Rank 2 student → Rank 2",
     ],
     lastClassExcluded: true,
     eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
@@ -703,6 +721,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
         level: 1,
         ruleType: "rank_chain",
         label: "1st Priority: Opposite rank (Rank 3 ↔ Rank 2)",
+        eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
+      },
+      {
+        level: 2,
+        ruleType: "rank_chain",
+        label: "2nd Priority: Own rank (Rank 3 / Rank 2)",
         eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
       },
     ],
@@ -714,12 +738,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     courseName: "SAT Verbal Believe",
     subject: "Believe",
     ruleType: "rank_chain",
-    priorityCount: 1,
+    priorityCount: 2,
     description:
-      "Rank 3 ↔ Rank 2. Direction depends on student's current rank.",
+      "1st: opposite rank (Rank 3 ↔ Rank 2). 2nd: the student's own rank. Direction depends on student's current rank.",
     makeupRules: [
-      "If student is Rank 3 → makeup in Rank 2",
-      "If student is Rank 2 → makeup in Rank 3",
+      "1st Priority: Rank 3 student → Rank 2; Rank 2 student → Rank 3",
+      "2nd Priority: Rank 3 student → Rank 3; Rank 2 student → Rank 2",
     ],
     lastClassExcluded: true,
     eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
@@ -728,6 +752,12 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
         level: 1,
         ruleType: "rank_chain",
         label: "1st Priority: Opposite rank (Rank 3 ↔ Rank 2)",
+        eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
+      },
+      {
+        level: 2,
+        ruleType: "rank_chain",
+        label: "2nd Priority: Own rank (Rank 3 / Rank 2)",
         eligibleTargets: ["SAT Verbal Rank 3", "SAT Verbal Rank 2"],
       },
     ],
@@ -832,7 +862,8 @@ export function evaluateLeavePolicy(
               priority.eligibleTargets,
               studentRank,
               rule.id,
-              input.missedCourseName
+              input.missedCourseName,
+              priority.level
             );
             for (const target of filtered) {
               const targetRank = extractRankFromCourseName(target);
@@ -899,7 +930,8 @@ function filterTargetsByStudentRank(
   targets: string[],
   studentRank: number | null,
   ruleId: string,
-  missedCourseName = ""
+  missedCourseName = "",
+  priorityLevel = 1
 ): string[] {
   if (studentRank === null) return targets;
 
@@ -939,22 +971,17 @@ function filterTargetsByStudentRank(
       return false;
     }
 
-    // Mastery/Wisdom: bidirectional Rank 3 ↔ Rank 2
-    if (ruleId === "reading-mastery" || ruleId === "writing-wisdom") {
-      if (studentRank === 3) return targetRank === 2;
-      if (studentRank === 2) return targetRank === 3;
-      return false;
-    }
-
-    // Knock Out, Intensive, Believe: bidirectional Rank 3 ↔ Rank 2
+    // Mastery, Wisdom, Knock Out, Intensive, Believe:
+    // 1st = opposite rank (3 ↔ 2), 2nd = the student's own rank.
     if (
+      ruleId === "reading-mastery" ||
+      ruleId === "writing-wisdom" ||
       ruleId === "sat-verbal-knockout" ||
       ruleId === "sat-verbal-intensive" ||
       ruleId === "sat-verbal-believe"
     ) {
-      if (studentRank === 3) return targetRank === 2;
-      if (studentRank === 2) return targetRank === 3;
-      return false;
+      if (studentRank !== 3 && studentRank !== 2) return false;
+      return targetRank === (priorityLevel === 2 ? studentRank : 5 - studentRank);
     }
 
     // Rank 3 rules: can go to Rank 2, Rank 4, or other sections

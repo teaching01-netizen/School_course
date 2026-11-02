@@ -74,12 +74,12 @@ describe("SAT Verbal hardcoded leave policy", () => {
     ]);
   });
 
-  it("uses one visible priority for rank-choice courses that choose by current rank", () => {
+  it("follows the policy priority count for rank-choice courses", () => {
     expect(ruleById("sat-verbal-realtime-practice").priorityCount).toBe(1);
-    expect(ruleById("reading-mastery").priorityCount).toBe(1);
-    expect(ruleById("sat-verbal-knockout").priorityCount).toBe(1);
-    expect(ruleById("sat-verbal-intensive").priorityCount).toBe(1);
-    expect(ruleById("sat-verbal-believe").priorityCount).toBe(1);
+    for (const id of ["reading-mastery", "writing-wisdom", "sat-verbal-knockout", "sat-verbal-intensive", "sat-verbal-believe"]) {
+      expect(ruleById(id).priorityCount).toBe(2);
+      expect(ruleById(id).priorities).toHaveLength(2);
+    }
   });
 
   it("still blocks every policy on the final class of a cycle", () => {

@@ -121,6 +121,7 @@ func TestSessionsRangeBundleMappedVisibilityAllowsOutOfScopeRank4Target(t *testi
 		return time.Date(2026, month, day, hour, 0, 0, 0, time.UTC)
 	}
 	missedSessionID := createSession(source.row.ID, utc(time.September, 26, 2))
+	createSession(source.row.ID, utc(time.October, 3, 2)) // the missed lesson is not the final class
 	section1SessionID := createSession(section1.row.ID, utc(time.September, 27, 2))
 	createSession(section1.row.ID, utc(time.October, 4, 2))
 	rank4SessionID := createSession(rank4.row.ID, utc(time.September, 28, 2))

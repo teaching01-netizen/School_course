@@ -96,6 +96,10 @@ func newPublicAbsenceContractFixture(t *testing.T) *publicAbsenceContractFixture
 	if _, err := pool.Exec(ctx, `UPDATE courses SET subject_id = $1 WHERE id = $2`, unrelatedSubject.ID, unrelatedCourse.ID); err != nil {
 		t.Fatalf("link unrelated course to subject: %v", err)
 	}
+	// Sit-in targets must be active for students (course_rule_configs.absence_form_active).
+	if _, err := pool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)`, unrelatedSubject.ID, unrelatedCourse.ID); err != nil {
+		t.Fatalf("activate unrelated course: %v", err)
+	}
 
 	teacherID, err := q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{
 		Username:     "unrelated-teacher-" + suffix,
@@ -313,7 +317,10 @@ func TestPublicBatchAcceptsTextReasonWhenLegacyReasonPoliciesAreEnabled(t *testi
 	}
 }
 
-func TestPublicBatchAllowsSitInCourseOutsideSelectedSubject(t *testing.T) {
+// An active course in another subject is not a sit-in target unless the
+// policy resolves it (allowed cross-subject targets: see
+// TestResolvedSitInSelectionAllowsResolvedCrossSubjectTarget).
+func TestPublicBatchRejectsSitInCourseOutsidePolicy(t *testing.T) {
 	fixture := newPublicAbsenceContractFixture(t)
 	item := fixture.validItem(0)
 	item.SitInMethod = contractStringPtr(SitInMethodPhysical)
@@ -322,18 +329,9 @@ func TestPublicBatchAllowsSitInCourseOutsideSelectedSubject(t *testing.T) {
 
 	recorder := fixture.submitBatch(fixture.requestBody(t, item), uuid.NewString())
 
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body = %s", recorder.Code, recorder.Body.String())
-	}
-	got := decodeContractBatchResponse(t, recorder)
-	if len(got.Items) != 1 {
-		t.Fatalf("response items = %d, want 1; body = %s", len(got.Items), recorder.Body.String())
-	}
-	if got.Items[0].ID == "" {
-		t.Fatalf("created item has no ID: %s", recorder.Body.String())
-	}
-	if count := fixture.absenceCount(t); count != 1 {
-		t.Fatalf("persisted absences = %d, want 1", count)
+	assertPublicContractError(t, recorder, http.StatusBadRequest, "invalid_sessions")
+	if count := fixture.absenceCount(t); count != 0 {
+		t.Fatalf("persisted absences = %d, want 0", count)
 	}
 }
 

@@ -27,15 +27,15 @@ func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, 
 	if !sourceCourseID.Valid || !subjectID.Valid || !targetCourseID.Valid || !dateFrom.Valid || !dateTo.Valid {
 		return fmt.Errorf("absence is missing sit-in policy context")
 	}
-	resolved, err := resolveSitInForCourse(ctx, q, wcode, sourceCourseID, subjectID, dateFrom.Time, dateTo.Time.AddDate(0, 0, 1), s.deps.InstituteTZ, 0, true)
+	// SAT Verbal reveals one priority level per request; a student may submit a
+	// session from any level they could reach, so check every level in turn.
+	levels, err := sitInPriorityLevels(func(after int) (*SitInResult, error) {
+		return resolveSitInForCourse(ctx, q, wcode, sourceCourseID, subjectID, dateFrom.Time, dateTo.Time.AddDate(0, 0, 1), s.deps.InstituteTZ, after, true)
+	})
 	if err != nil {
 		return fmt.Errorf("resolve authorized sit-in targets: %w", err)
 	}
-	selectedIDs := make([]string, 0, len(sessionIDs))
-	for _, sessionID := range sessionIDs {
-		selectedIDs = append(selectedIDs, sessionID.String())
-	}
-	if !resolvedSitInSelectionAllowsCourse(resolved, targetCourseID.String(), selectedIDs) {
+	if !sitInSelectionAllowedAtAnyLevel(levels, targetCourseID.String(), sessionIDs) {
 		return fmt.Errorf("selected sit-in session is outside the allowed policy target")
 	}
 	if s.deps.SitInResolver == nil {
@@ -52,4 +52,42 @@ func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, 
 		}
 	}
 	return nil
+}
+
+// sitInPriorityLevels collects every reveal step: level 1, then each
+// "See other times" level until the policy reports no further priority.
+func sitInPriorityLevels(resolve func(after int) (*SitInResult, error)) ([]*SitInResult, error) {
+	var levels []*SitInResult
+	for after := 0; ; {
+		resolved, err := resolve(after)
+		if err != nil {
+			return nil, err
+		}
+		levels = append(levels, resolved)
+		if resolved == nil || !resolved.HasNextPriority || resolved.CurrentPriorityLevel <= after {
+			return levels, nil
+		}
+		after = resolved.CurrentPriorityLevel
+	}
+}
+
+// sitInSelectionAllowedAtAnyLevel reports whether every selected session is
+// allowed for the target course by at least one revealed priority level.
+func sitInSelectionAllowedAtAnyLevel(levels []*SitInResult, targetCourseID string, sessionIDs []pgtype.UUID) bool {
+	if len(sessionIDs) == 0 {
+		return false
+	}
+	for _, sessionID := range sessionIDs {
+		allowed := false
+		for _, level := range levels {
+			if resolvedSitInSelectionAllowsCourse(level, targetCourseID, []string{sessionID.String()}) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
 }

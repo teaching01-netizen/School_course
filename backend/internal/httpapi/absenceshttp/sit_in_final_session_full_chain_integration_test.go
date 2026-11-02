@@ -115,6 +115,19 @@ func (f finalSessionFixture) assertDiscovery(t *testing.T, body []byte, finalAll
 	}
 }
 
+// allowGenericFinalClass turns off the rule's "Last Class Excluded" flag:
+// generic rules offer the target's final class only when that flag is off.
+func (f finalSessionFixture) allowGenericFinalClass(t *testing.T) {
+	t.Helper()
+	if _, err := f.pool.Exec(context.Background(), `
+		UPDATE sit_in_rules r SET predicate = r.predicate || '{"last_class_excluded": false}'
+		FROM courses c JOIN root_course_groups g ON g.id = c.root_course_group_id
+		WHERE c.id = $1 AND r.id = g.sit_in_rule_id
+	`, f.courseID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 	for _, inactiveMapping := range []bool{false, true} {
 		mappingName := "unmapped"
@@ -124,6 +137,7 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 		for _, flow := range []string{"single", "student_batch", "staff_form"} {
 			t.Run(mappingName+"/"+flow, func(t *testing.T) {
 				f := seedFinalSessionFixture(t)
+				f.allowGenericFinalClass(t)
 				if inactiveMapping {
 					if _, err := f.pool.Exec(context.Background(), `
 						INSERT INTO sat_verbal_policy_mappings (rule_id, course_id, policy_rule, policy_hash, active)
@@ -318,6 +332,7 @@ func TestFullChain_FinalSitInRespectsConfiguredWindow(t *testing.T) {
 func TestFullChain_UnmappedFinalSitInIgnoresAnotherCoursesWindow(t *testing.T) {
 	f := seedFinalSessionFixture(t)
 	other := seedFinalSessionFixture(t)
+	f.allowGenericFinalClass(t)
 	ctx := context.Background()
 	student, err := f.q.StudentGetByWCode(ctx, f.wcode)
 	if err != nil {
@@ -448,6 +463,16 @@ func TestFullChain_FinalSitInFollowsActiveSatVerbalMapping(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				f := seedFinalSessionFixture(t)
 				ctx := context.Background()
+				// SAT policy never makes up the missed course's own final class, so
+				// extend the missed course past the leave day; this test is about
+				// excluding the target's final class.
+				if _, err := f.pool.Exec(ctx, `
+					INSERT INTO sessions (course_id, teacher_id, start_at, end_at)
+					SELECT course_id, teacher_id, start_at + interval '20 days', end_at + interval '20 days'
+					FROM sessions WHERE id = $1
+				`, f.missedID); err != nil {
+					t.Fatal(err)
+				}
 				t.Cleanup(func() {
 					if _, err := f.pool.Exec(ctx, "DELETE FROM sat_verbal_policy_mappings WHERE rule_id IN ($1, $2)", "source-"+f.courseID, "target-"+f.targetCourseID); err != nil {
 						t.Error(err)

@@ -556,6 +556,9 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if len(enrolled) == 0 {
 		return nil, fmt.Errorf("student not enrolled in any course for this subject")
 	}
+	// SAT Verbal derives targets from the student's main course, which lives in
+	// another root group, so it needs the subject-wide enrollment list.
+	subjectEnrolled := enrolled
 
 	for _, c := range enrolled {
 		if c.CourseID == courseID && c.RootCourseGroupID.Valid {
@@ -589,7 +592,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if err != nil {
 		return nil, fmt.Errorf("active sit-in sessions lookup: %w", err)
 	}
-	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInSessionIDs); err != nil {
+	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInSessionIDs); err != nil {
 		return nil, err
 	} else if mapped != nil {
 		if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, mapped, instituteTZ); err != nil {

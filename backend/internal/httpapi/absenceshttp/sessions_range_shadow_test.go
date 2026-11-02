@@ -644,7 +644,10 @@ func TestSessionsRangeV2_QueryCountGate(t *testing.T) {
 				un += len(ss)
 			}
 		}
-		bounded, err := q.SessionsRangeSitInBundleV2(context.Background(), sqldb.SitInBundleV2Params{StudentID: studentID, MissedCourseIDs: factCourseIDs, Discovery: sqldb.SitInDiscoveryBounds{WindowFromUTC: wf, WindowToExclUTC: wt.AddDate(0, 0, 1)}})
+		// Explicit cutoff: with no configured sit_in_window_weeks the future is
+		// deliberately unbounded (f36039f), which would admit the far-future
+		// probe as legitimate candidates.
+		bounded, err := q.SessionsRangeSitInBundleV2(context.Background(), sqldb.SitInBundleV2Params{StudentID: studentID, MissedCourseIDs: factCourseIDs, Discovery: sqldb.SitInDiscoveryBounds{WindowFromUTC: wf, WindowToExclUTC: wt.AddDate(0, 0, 1), CutoffUTC: wt.AddDate(0, 0, 28)}})
 		if err != nil {
 			t.Fatal(err)
 		}

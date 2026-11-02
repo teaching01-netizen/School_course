@@ -107,27 +107,40 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	if err != nil {
 		return nil, fmt.Errorf("missed course sessions lookup: %w", err)
 	}
-	missedLessonSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, input.MissedSessions)
+	// Policy: the course's final class (End-of-class Meal) can never be made
+	// up, so a missed final class gets no make-up at any priority.
+	missedFinalDay := ""
+	if rule.LastClassExcluded {
+		missedFinalDay = satVerbalFinalDay(missedCourseSessions, instituteLoc)
+	}
+	isMissedFinal := func(s sqldb.SessionInRange) bool {
+		return missedFinalDay != "" && s.StartAt.Time.In(instituteLoc).Format("2006-01-02") == missedFinalDay
+	}
+	var makeupMissed []sqldb.SessionInRange
+	for _, missed := range input.MissedSessions {
+		if !isMissedFinal(missed) {
+			makeupMissed = append(makeupMissed, missed)
+		}
+	}
+	missedLessonSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, makeupMissed)
 	notBefore := requestDateLowerBound(input.RequestTime, instituteLoc)
-	priorities, err := satVerbalResolvePriorities(ctx, input, *rule, input.MissedSessions, missedLessonSlots, notBefore, instituteLoc)
+	var priorities []SitInPriorityResult
+	if len(makeupMissed) > 0 {
+		priorities, err = satVerbalResolvePriorities(ctx, input, *rule, makeupMissed, missedLessonSlots, notBefore, instituteLoc)
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	if len(priorities) == 0 {
+		if len(makeupMissed) < len(input.MissedSessions) {
+			return satVerbalNoMakeupResult(len(input.MissedSessions)), nil
+		}
 		return nil, nil
 	}
 	visiblePriorities, currentLevel, hasNext := satVerbalVisiblePriority(priorities, input.AfterPriorityLevel)
 	if len(visiblePriorities) == 0 {
-		return &SitInResult{
-			SitInMethod:          SitInMethodNone,
-			RuleName:             "SAT Verbal Policy",
-			RuleType:             "sat_verbal_policy",
-			Priorities:           []SitInPriorityResult{},
-			CurrentPriorityLevel: 0,
-			HasNextPriority:      false,
-			MissedCount:          len(input.MissedSessions),
-		}, nil
+		return satVerbalNoMakeupResult(len(input.MissedSessions)), nil
 	}
 
 	result := &SitInResult{
@@ -146,6 +159,17 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 	for _, missed := range input.MissedSessions {
 		missedID, err := uuidString(missed.ID)
 		if err != nil {
+			continue
+		}
+		if isMissedFinal(missed) {
+			// Explicit empty entry: the client falls back to the aggregate
+			// priorities when a missed session has no entry.
+			result.SitInByMissedSession[missedID] = SitInSessionResult{
+				SitInMethod: SitInMethodNone,
+				RuleName:    "SAT Verbal Policy",
+				RuleType:    "sat_verbal_policy",
+				Priorities:  []SitInPriorityResult{},
+			}
 			continue
 		}
 		sessionSlots := missedLessonSlotsForMissedSessions(missedCourseSessions, []sqldb.SessionInRange{missed})
@@ -511,14 +535,17 @@ func satVerbalDerivedTargetNames(ruleCourseName string, priority satverbalpolicy
 	}
 	switch ruleName {
 	case "reading mastery", "writing wisdom", "sat verbal knock out", "sat verbal intensive", "sat verbal believe":
+		// Policy: 1st = the opposite of the student's rank (3 → 2, 2 → 3);
+		// 2nd = the other of Rank 3 / Rank 2, i.e. the student's own rank.
 		for _, course := range enrolled {
 			rank := satVerbalRank(course.CourseName)
-			if rank == 3 {
-				return []string{"SAT Verbal Rank 2"}
+			if rank != 2 && rank != 3 {
+				continue
 			}
-			if rank == 2 {
-				return []string{"SAT Verbal Rank 3"}
+			if priority.Level == 2 {
+				return []string{fmt.Sprintf("SAT Verbal Rank %d", rank)}
 			}
+			return []string{fmt.Sprintf("SAT Verbal Rank %d", 5-rank)}
 		}
 	}
 	return nil
@@ -615,6 +642,25 @@ func satVerbalSessionOptionsForTarget(
 	return satVerbalSessionOptionsForTargetWithBlockedSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, excludeFinal, notBefore, cutoff, instituteLoc, offered, nil)
 }
 
+// satVerbalFinalDay is the institute-local date of a course's last session.
+func satVerbalFinalDay(courseSessions []sqldb.SessionInRange, instituteLoc *time.Location) string {
+	sessions := sortedSessions(courseSessions)
+	if len(sessions) == 0 {
+		return ""
+	}
+	return sessions[len(sessions)-1].StartAt.Time.In(instituteLoc).Format("2006-01-02")
+}
+
+func satVerbalNoMakeupResult(missedCount int) *SitInResult {
+	return &SitInResult{
+		SitInMethod: SitInMethodNone,
+		RuleName:    "SAT Verbal Policy",
+		RuleType:    "sat_verbal_policy",
+		Priorities:  []SitInPriorityResult{},
+		MissedCount: missedCount,
+	}
+}
+
 func satVerbalSessionOptionsForTargetWithBlockedSessions(
 	targetSessions []sqldb.SessionInRange,
 	missedSessions []sqldb.SessionInRange,
@@ -628,10 +674,7 @@ func satVerbalSessionOptionsForTargetWithBlockedSessions(
 	blockedSessionIDs map[string]struct{},
 ) satVerbalSessionOptions {
 	sessions := sortedSessions(targetSessions)
-	finalDay := ""
-	if len(sessions) > 0 {
-		finalDay = sessions[len(sessions)-1].StartAt.Time.In(instituteLoc).Format("2006-01-02")
-	}
+	finalDay := satVerbalFinalDay(sessions, instituteLoc)
 	out := satVerbalSessionOptions{}
 	if sameLessonOnly {
 		for _, slot := range missedLessonSlots {

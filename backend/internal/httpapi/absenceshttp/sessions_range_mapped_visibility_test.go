@@ -145,7 +145,8 @@ func TestResolveMappedFromBundleKeepsVisibleOutOfScopeSATTargets(t *testing.T) {
 					uuidStringOrZero(makeUUID(sourceID)): {},
 				},
 				Sessions: map[string][]sqldb.SessionInRange{
-					uuidStringOrZero(makeUUID(sourceID)): {missed},
+					// A later lesson: the missed one is not the final class.
+					uuidStringOrZero(makeUUID(sourceID)): {missed, session(id(3), sourceID, "2026-10-03T02:00:00Z", "2026-10-03T03:00:00Z")},
 					uuidStringOrZero(makeUUID(targetID)): {future1, future2},
 				},
 			}

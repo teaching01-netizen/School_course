@@ -617,7 +617,8 @@ func TestResolveSatVerbalPolicy_BeginnerSection3TargetsSection1SameLessonOnly(t 
 	}
 }
 
-func TestResolveSatVerbalPolicy_SameOccurrenceTargetFinalUnavailableButMissedFinalAllowed(t *testing.T) {
+// Policy: the final class (End-of-class Meal) can never be made up.
+func TestResolveSatVerbalPolicy_MissedFinalClassHasNoMakeup(t *testing.T) {
 	section1ID := "41100000-0000-0000-0000-000000000001"
 	section2ID := "42200000-0000-0000-0000-000000000002"
 
@@ -670,15 +671,8 @@ func TestResolveSatVerbalPolicy_SameOccurrenceTargetFinalUnavailableButMissedFin
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if result == nil || len(result.Priorities) != 1 {
-		t.Fatalf("expected diagnostic priority for final missed session, got %#v", result)
-	}
-	priority := result.Priorities[0]
-	if len(priority.Available) != 0 {
-		t.Fatalf("final target sit-in session must not be available, got %#v", priority.Available)
-	}
-	if got := priority.Unavailable; len(got) != 1 || got[0].ReasonCode != "target_final_class" || got[0].Session == nil || got[0].Session.ID != "f4220000-0000-0000-0000-000000000002" {
-		t.Fatalf("unavailable = %#v, want target_final_class for same-occurrence final target", got)
+	if result == nil || result.SitInMethod != SitInMethodNone || len(result.Priorities) != 0 || result.HasNextPriority {
+		t.Fatalf("missed final class: got %#v, want no make-up", result)
 	}
 }
 
@@ -1185,6 +1179,7 @@ func TestResolveSatVerbalPolicy_Rank3Section2C3ExpiredSameOccurrenceKeepsPriorit
 		session("a7220000-0000-0000-0000-000000000001", missedID, "2026-09-12T09:00:00Z", "2026-09-12T10:00:00Z"),
 		session("a7220000-0000-0000-0000-000000000002", missedID, "2026-09-19T09:00:00Z", "2026-09-19T10:00:00Z"),
 		missed,
+		session("a7220000-0000-0000-0000-000000000004", missedID, "2026-10-03T09:00:00Z", "2026-10-03T10:00:00Z"),
 	}
 	sessionsByCourse := map[pgtype.UUID][]sqldb.SessionInRange{
 		makeUUID(missedID): missedCourseSessions,
@@ -1377,6 +1372,7 @@ func TestResolveSatVerbalPolicy_BeginnerDifferentHistoryKeepsSameOccurrenceAndRe
 			session("d7110000-0000-0000-0000-000000000005", section1ID, "2026-09-06T17:00:00Z", "2026-09-06T20:20:00Z"),
 			session("d7110000-0000-0000-0000-000000000006", section1ID, "2026-09-08T17:00:00Z", "2026-09-08T20:20:00Z"),
 			missed,
+			session("d7110000-0000-0000-0000-000000000008", section1ID, "2026-09-22T17:00:00Z", "2026-09-22T20:20:00Z"),
 		},
 		makeUUID(section2ID): {
 			session("d7220000-0000-0000-0000-000000000001", section2ID, "2026-08-02T17:00:00Z", "2026-08-02T20:20:00Z"),
@@ -1398,7 +1394,9 @@ func TestResolveSatVerbalPolicy_BeginnerDifferentHistoryKeepsSameOccurrenceAndRe
 		t.Helper()
 		loadSessions := func(_ context.Context, courseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
 			all := sessionsByCourse[courseID]
-			if !bounded {
+			// The missed course always needs its full schedule (to know its
+			// final class); only the target's history is truncated here.
+			if !bounded || courseID == makeUUID(section1ID) {
 				return all, nil
 			}
 			windowFrom := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)

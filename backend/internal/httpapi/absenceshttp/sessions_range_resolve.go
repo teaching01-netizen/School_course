@@ -43,6 +43,9 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 	if len(enrolled) == 0 {
 		return nil, nil
 	}
+	// SAT Verbal derives targets from the student's main course, which lives in
+	// another root group, so it needs the subject-wide enrollment list.
+	subjectEnrolled := enrolled
 	enrolled = expandEnrolledByRootForCourse(b, enrolled, courseID)
 	var rootCourseGroupID, mergeGroupID pgtype.UUID
 	for _, enrolledCourse := range enrolled {
@@ -68,7 +71,7 @@ func resolveSitInForCourseFromBundle(in bundleSitInInputs, wcode string, student
 	// SAT-verbal mapped path first (mirrors old order). The bundle carries
 	// only mappings touching this student universe; resolution itself is
 	// pure given the map-backed session loader.
-	if mapped, done, err := resolveMappedFromBundle(in, courseID, enrolled, dateFrom, dateTo); done {
+	if mapped, done, err := resolveMappedFromBundle(in, courseID, subjectEnrolled, dateFrom, dateTo); done {
 		return mapped, err
 	}
 	// Missed-course level determines behavior (old: missedCourse lookup with

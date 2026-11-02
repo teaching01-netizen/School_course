@@ -1313,20 +1313,27 @@ func (q *Queries) ExpectedSessionConflictsForStudentCandidates(ctx context.Conte
 	if instituteTZ == "" {
 		instituteTZ = "Asia/Bangkok"
 	}
+	// The MATERIALIZED fence keeps the planner from pushing the expensive
+	// expected-attendance function into a seq scan of every session (17s on
+	// production data); it must run only on the few overlapping rows.
 	rows, err := q.db.Query(ctx, `
-		SELECT DISTINCT normal.id, normal.course_id, normal.room_id, normal.start_at, normal.end_at
-		FROM sessions candidate
-		JOIN effective_course_students enrolled
-		  ON enrolled.student_id = $1 AND enrolled.status = 'enrolled'
-		JOIN sessions normal
-		  ON normal.course_id = enrolled.course_id AND normal.deleted_at IS NULL
-		WHERE candidate.id = ANY($2::uuid[])
-		  AND candidate.deleted_at IS NULL
-		  AND normal.id <> candidate.id
-		  AND student_is_expected_at_session_tz($1, normal.id, $3)
-		  AND candidate.start_at < normal.end_at
-		  AND candidate.end_at > normal.start_at
-		ORDER BY normal.start_at, normal.id
+		WITH overlapping AS MATERIALIZED (
+			SELECT DISTINCT normal.id, normal.course_id, normal.room_id, normal.start_at, normal.end_at
+			FROM sessions candidate
+			JOIN effective_course_students enrolled
+			  ON enrolled.student_id = $1 AND enrolled.status = 'enrolled'
+			JOIN sessions normal
+			  ON normal.course_id = enrolled.course_id AND normal.deleted_at IS NULL
+			WHERE candidate.id = ANY($2::uuid[])
+			  AND candidate.deleted_at IS NULL
+			  AND normal.id <> candidate.id
+			  AND candidate.start_at < normal.end_at
+			  AND candidate.end_at > normal.start_at
+		)
+		SELECT id, course_id, room_id, start_at, end_at
+		FROM overlapping
+		WHERE student_is_expected_at_session_tz($1, id, $3)
+		ORDER BY start_at, id
 	`, studentID, candidateSessionIDs, instituteTZ)
 	if err != nil {
 		return nil, err
