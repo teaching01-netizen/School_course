@@ -464,27 +464,26 @@ func scopesAndDayCountsSQL() string {
 		student_scope AS (
 			SELECT id FROM students WHERE lower(wcode) = lower($2)
 		), relevant_sessions AS MATERIALIZED (
+			-- UNION of index-driven ID sets, not an OR of EXISTS arms: the OR
+			-- forced a seq scan of every session (~1.2s at 67k rows, growing).
 			SELECT s.id AS session_id, s.course_id AS course_id,
 			       (s.start_at AT TIME ZONE $3)::date AS day
-			FROM sessions s
+			FROM (
+				SELECT s.id FROM sessions s
+				WHERE s.course_id IN (SELECT id FROM split) AND s.deleted_at IS NULL
+				UNION
+				SELECT s.id FROM sessions s
+				JOIN course_merge_group_members m ON m.course_id = s.course_id
+				WHERE m.group_id IN (SELECT id FROM merge_split) AND s.deleted_at IS NULL
+				UNION
+				SELECT ams.session_id FROM absence_missed_sessions ams
+				JOIN student_absences msa ON msa.id = ams.absence_id
+				WHERE lower(msa.wcode) = lower($2)
+				  AND msa.status NOT IN ('cancelled', 'special_approved')
+			) ids
+			JOIN sessions s ON s.id = ids.id AND s.deleted_at IS NULL
 			CROSS JOIN student_scope st
-			WHERE s.deleted_at IS NULL
-			  AND student_is_expected_at_session_tz(st.id, s.id, $4)
-			  AND (
-				s.course_id IN (SELECT id FROM split)
-				OR EXISTS (
-					SELECT 1 FROM course_merge_group_members m
-					WHERE m.course_id = s.course_id
-					  AND m.group_id IN (SELECT id FROM merge_split)
-				)
-				OR EXISTS (
-					SELECT 1 FROM absence_missed_sessions ams
-					JOIN student_absences msa ON msa.id = ams.absence_id
-					WHERE ams.session_id = s.id
-					  AND lower(msa.wcode) = lower($2)
-					  AND msa.status NOT IN ('cancelled', 'special_approved')
-				)
-			  )
+			WHERE student_is_expected_at_session_tz(st.id, s.id, $4)
 		), course_days AS (
 			SELECT DISTINCT rs.course_id AS course_id, NULL::uuid AS merge_group_id,
 			       rs.day AS day
@@ -652,27 +651,25 @@ func dayCountsQueryText() string {
 		WITH student_scope AS (
 			SELECT id FROM students WHERE lower(wcode) = lower($1)
 		), relevant_sessions AS MATERIALIZED (
+			-- UNION of index-driven ID sets; see scopesAndDayCountsSQL.
 			SELECT s.id AS session_id, s.course_id AS course_id,
 			       (s.start_at AT TIME ZONE $4)::date AS day
-			FROM sessions s
+			FROM (
+				SELECT s.id FROM sessions s
+				WHERE s.course_id = ANY($2::uuid[]) AND s.deleted_at IS NULL
+				UNION
+				SELECT s.id FROM sessions s
+				JOIN course_merge_group_members m ON m.course_id = s.course_id
+				WHERE m.group_id = ANY($3::uuid[]) AND s.deleted_at IS NULL
+				UNION
+				SELECT ams.session_id FROM absence_missed_sessions ams
+				JOIN student_absences msa ON msa.id = ams.absence_id
+				WHERE lower(msa.wcode) = lower($1)
+				  AND msa.status NOT IN ('cancelled', 'special_approved')
+			) ids
+			JOIN sessions s ON s.id = ids.id AND s.deleted_at IS NULL
 			CROSS JOIN student_scope st
-			WHERE s.deleted_at IS NULL
-			  AND student_is_expected_at_session_tz(st.id, s.id, $5)
-			  AND (
-				s.course_id = ANY($2::uuid[])
-				OR EXISTS (
-					SELECT 1 FROM course_merge_group_members m
-					WHERE m.course_id = s.course_id
-					  AND m.group_id = ANY($3::uuid[])
-				)
-				OR EXISTS (
-					SELECT 1 FROM absence_missed_sessions ams
-					JOIN student_absences msa ON msa.id = ams.absence_id
-					WHERE ams.session_id = s.id
-					  AND lower(msa.wcode) = lower($1)
-					  AND msa.status NOT IN ('cancelled', 'special_approved')
-				)
-			  )
+			WHERE student_is_expected_at_session_tz(st.id, s.id, $5)
 		), course_days AS (
 			SELECT DISTINCT rs.course_id AS course_id, NULL::uuid AS merge_group_id,
 			       rs.day AS day
