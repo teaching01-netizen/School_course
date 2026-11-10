@@ -1,30 +1,80 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
 import { apiJson } from "../api/client";
-import { detectGaps } from "../utils/levels";
-import type { CourseLevelItem, RootCourseGroupInfo } from "../utils/levels";
+import type { CourseLevelItem, CourseMergeGroupConfig, RootCourseGroupInfo } from "../utils/levels";
 import { useToast } from "../hooks/useToast";
 import Button from "./ui/Button";
 import Input from "./ui/Input";
 import SearchableSelect from "./ui/SearchableSelect";
 import TypeaheadSelect from "./TypeaheadSelect";
+import ConfirmModal from "./ConfirmModal";
 import type { SitInRule } from "../types";
 
 const UNGROUPED_ID = "__ungrouped__";
+const SIT_IN_RULES_HREF = "/admin/operations?tab=sit-in-rules";
+const MAX_LEVEL = 32767;
+const EMPTY_MERGE_GROUPS: CourseMergeGroupConfig[] = [];
 
 type CourseLevelManagerPanelProps = {
   courses: CourseLevelItem[];
   groups: RootCourseGroupInfo[];
   rules: SitInRule[];
+  mergeGroups?: CourseMergeGroupConfig[];
+  rulesError?: string | null;
+  rulesRetrying?: boolean;
+  onRetryRules?: () => void;
+  mergeConfigError?: string | null;
+  mergeConfigRetrying?: boolean;
+  onRetryMergeConfig?: () => void;
   onCoursesChange: (update: (courses: CourseLevelItem[]) => CourseLevelItem[]) => void;
   onGroupsChange: (update: (groups: RootCourseGroupInfo[]) => RootCourseGroupInfo[]) => void;
 };
 
 type LevelStatus = "ready" | "attention" | "empty";
 
+type EffectiveCourse = {
+  course: CourseLevelItem;
+  mergeGroup: CourseMergeGroupConfig | null;
+  displayLevel: number | null;
+  cycleId: string | null;
+  cycleLabel: string;
+  canEditLevel: boolean;
+  readOnlyReason: string | null;
+  canonicalKey: string;
+  /** Course that owns the authoritative cycle for this row (the link source when one exists). */
+  setupCourseId: string;
+  /** A level is set but no cycle is, so readiness cannot be asserted. */
+  missingCycle: boolean;
+};
+
+type EffectiveEntry = {
+  key: string;
+  courseId: string;
+  code: string;
+  subjectId: string;
+  subjectCode: string;
+  subjectName: string;
+  rootGroupId: string | null;
+  cycleId: string | null;
+  cycleLabel: string;
+  level: number | null;
+  mergeGroupId: string | null;
+  /** Course that owns the authoritative cycle for this entry (the link source when one exists). */
+  setupCourseId: string;
+  missingCycle: boolean;
+};
+
+type LevelConflict = {
+  code: string;
+  subjectName: string;
+  cycleLabel: string;
+};
+
 function levelStatus(level: number | null): { label: string; className: string } {
-  if (level === null) return { label: "Not set", className: "border-wi-line bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text-light)]" };
+  if (level === null) return { label: "Not set", className: "border-wi-line bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)]" };
   if (level === 1) return { label: "Zoom", className: "border-[var(--color-wi-primary)]/20 bg-[var(--color-wi-callout)] text-[var(--color-wi-primary)]" };
-  return { label: "Eligible", className: "border-[var(--color-wi-green)]/20 bg-[var(--color-wi-callout)] text-[var(--color-wi-green)]" };
+  return { label: "Eligible", className: "border-[var(--color-wi-green)]/20 bg-[var(--color-wi-callout)] text-[var(--color-wi-green-dark)]" };
 }
 
 function statusDot(status: LevelStatus): string {
@@ -33,43 +83,69 @@ function statusDot(status: LevelStatus): string {
   return "bg-[var(--color-wi-faint)]";
 }
 
-function groupStatus(courses: CourseLevelItem[], hasSitInRule = true): { status: LevelStatus; label: string; gaps: number } {
-  if (courses.length === 0) return { status: "empty", label: "Empty", gaps: 0 };
-  const cycles = new Map<string, CourseLevelItem[]>();
-  for (const course of courses) {
-    const cycleCourses = cycles.get(course.cycle_id) ?? [];
-    cycleCourses.push(course);
-    cycles.set(course.cycle_id, cycleCourses);
+function scopeKey(rootGroupId: string | null, subjectId: string, cycleId: string | null): string {
+  return `${rootGroupId ?? UNGROUPED_ID}|${subjectId}|${cycleId ?? "__no_cycle__"}`;
+}
+
+function countGaps(entries: EffectiveEntry[]): number {
+  const scopes = new Map<string, number[]>();
+  for (const entry of entries) {
+    if (entry.level === null) continue;
+    const key = scopeKey(entry.rootGroupId, entry.subjectId, entry.cycleId);
+    const levels = scopes.get(key) ?? [];
+    levels.push(entry.level);
+    scopes.set(key, levels);
   }
-  const gaps = [...cycles.values()].reduce((total, cycleCourses) => total + detectGaps(cycleCourses).length, 0);
-  const hasUnset = courses.some((course) => course.level === null);
-  if (courses.some((course) => course.level !== null) && !hasSitInRule) return { status: "attention", label: "Rule needed", gaps };
-  if (hasUnset || gaps > 0) return { status: "attention", label: "Needs attention", gaps };
-  return { status: "ready", label: "Ready", gaps: 0 };
+  let gaps = 0;
+  for (const levels of scopes.values()) {
+    const unique = [...new Set(levels)].sort((a, b) => a - b);
+    if (unique.length < 2) continue;
+    gaps += unique[unique.length - 1] - unique[0] + 1 - unique.length;
+  }
+  return gaps;
 }
 
 function groupCourses(courses: CourseLevelItem[], groupId: string): CourseLevelItem[] {
-  return courses
-    .filter((course) => groupId === UNGROUPED_ID ? course.root_course_group_id === null : course.root_course_group_id === groupId)
-    .sort((a, b) => {
-      if (a.level === null && b.level !== null) return 1;
-      if (a.level !== null && b.level === null) return -1;
-      if (a.level !== null && b.level !== null && a.level !== b.level) return a.level - b.level;
-      return a.code.localeCompare(b.code);
-    });
+  return courses.filter((course) => groupId === UNGROUPED_ID ? course.root_course_group_id === null : course.root_course_group_id === groupId);
 }
 
 function StatusBadge({ level }: { level: number | null }) {
   const status = levelStatus(level);
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium ${status.className}`}>
+    <span aria-label={`Level status: ${status.label}`} className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium ${status.className}`}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {status.label}
     </span>
   );
 }
 
-export default function CourseLevelManagerPanel({ courses, groups, rules, onCoursesChange, onGroupsChange }: CourseLevelManagerPanelProps) {
+function SummaryMetric({ label, value, tone }: { label: string; value: number; tone: "blue" | "green" | "amber" | "red" }) {
+  const toneClass = { blue: "bg-[var(--color-wi-primary)]", green: "bg-[var(--color-wi-green)]", amber: "bg-[var(--color-wi-amber)]", red: "bg-[var(--color-wi-red)]" }[tone];
+  return (
+    <div role="group" aria-label={`${label}: ${value}`} className="flex items-center gap-2 border-r border-wi-line px-2 last:border-r-0">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${toneClass}`} aria-hidden="true" />
+      <div>
+        <p className="text-base font-semibold tabular-nums text-[var(--color-wi-text)]">{value}</p>
+        <p className="text-xs text-[var(--color-wi-text-light)]">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+export default function CourseLevelManagerPanel({
+  courses,
+  groups,
+  rules,
+  mergeGroups = EMPTY_MERGE_GROUPS,
+  rulesError = null,
+  rulesRetrying = false,
+  onRetryRules,
+  mergeConfigError = null,
+  mergeConfigRetrying = false,
+  onRetryMergeConfig,
+  onCoursesChange,
+  onGroupsChange,
+}: CourseLevelManagerPanelProps) {
   const { addToast } = useToast();
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
@@ -77,11 +153,16 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
   const [editingGroupName, setEditingGroupName] = useState("");
   const [groupError, setGroupError] = useState<string | null>(null);
   const [savingGroup, setSavingGroup] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RootCourseGroupInfo | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState(false);
   const [savingCourseId, setSavingCourseId] = useState<string | null>(null);
   const [savingSitInRule, setSavingSitInRule] = useState(false);
+  const [ruleError, setRuleError] = useState<string | null>(null);
   const [draftLevels, setDraftLevels] = useState<Record<string, string>>({});
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [newLevelCourseId, setNewLevelCourseId] = useState("");
   const [newLevel, setNewLevel] = useState("");
+  const persistedRef = useRef<Map<string, string>>(new Map());
 
   const groupOptions = useMemo(() => {
     const ungroupedCount = courses.filter((course) => course.root_course_group_id === null).length;
@@ -91,15 +172,130 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
     ];
   }, [courses, groups]);
 
+  const effective = useMemo(() => {
+    const mergeByCode = new Map<string, CourseMergeGroupConfig>();
+    for (const group of mergeGroups) {
+      for (const code of group.course_codes) mergeByCode.set(code, group);
+    }
+    const courseByCode = new Map(courses.map((course) => [course.code, course]));
+    const rows = new Map<string, EffectiveCourse>();
+    const entries: EffectiveEntry[] = [];
+    const seenMergeGroups = new Set<string>();
+
+    for (const course of courses) {
+      const mergeGroup = mergeByCode.get(course.code) ?? null;
+      if (!mergeGroup) {
+        const cycleId = course.cycle_id || null;
+        rows.set(course.id, {
+          course,
+          mergeGroup: null,
+          displayLevel: course.level,
+          cycleId,
+          cycleLabel: course.cycle_label || "No cycle",
+          canEditLevel: Boolean(cycleId),
+          readOnlyReason: cycleId ? null : "Add a cycle to this course before setting its level.",
+          canonicalKey: `course:${course.id}`,
+          setupCourseId: course.id,
+          missingCycle: course.level !== null && !cycleId,
+        });
+        entries.push({
+          key: `course:${course.id}`,
+          courseId: course.id,
+          code: course.code,
+          subjectId: course.subject_id,
+          subjectCode: course.subject_code,
+          subjectName: course.subject_name,
+          rootGroupId: course.root_course_group_id,
+          cycleId,
+          cycleLabel: course.cycle_label || "No cycle",
+          level: course.level,
+          mergeGroupId: null,
+          setupCourseId: course.id,
+          missingCycle: course.level !== null && !cycleId,
+        });
+        continue;
+      }
+
+      const isContinuation = Boolean(mergeGroup.rule_source_course_code);
+      const sourceCourse = mergeGroup.rule_source_course_code ? courseByCode.get(mergeGroup.rule_source_course_code) ?? null : null;
+      const canonical = sourceCourse ?? courseByCode.get(mergeGroup.course_codes[0] ?? "") ?? course;
+      const isSource = Boolean(mergeGroup.rule_source_course_code && mergeGroup.rule_source_course_code === course.code);
+      // The course list returns each member's raw level/cycle, while the merge
+      // config returns one resolved effective value. For a continuation link the
+      // config cycle is read from the source course (backend/internal/db/
+      // course_groups_custom.go CourseMergeGroupConfigsList), so a null cycle means
+      // the source has no cycle. Falling back to the member's cycle would invent one.
+      const cycleId = mergeGroup.cycle_id ?? null;
+      const cycleLabel = mergeGroup.cycle_label || "No cycle";
+      // The API resolves level/cycle to one value without exposing whether the
+      // merge group overrides the source or inherits it, so every linked member
+      // (including the source course) is read-only here.
+      const readOnlyReason = !isContinuation
+        ? "Level and cycle are managed by the merged course configuration in Sit-in Rules."
+        : isSource
+          ? "The link may override this source course's level. Effective level and cycle are managed in Sit-in Rules."
+          : `Level and cycle follow ${mergeGroup.rule_source_course_code} through the link in Sit-in Rules.`;
+      rows.set(course.id, {
+        course,
+        mergeGroup,
+        displayLevel: mergeGroup.level,
+        cycleId,
+        cycleLabel,
+        canEditLevel: false,
+        readOnlyReason,
+        canonicalKey: `merge:${mergeGroup.id}`,
+        setupCourseId: canonical.id,
+        missingCycle: mergeGroup.level !== null && !cycleId,
+      });
+
+      if (!seenMergeGroups.has(mergeGroup.id)) {
+        seenMergeGroups.add(mergeGroup.id);
+        entries.push({
+          key: `merge:${mergeGroup.id}`,
+          courseId: canonical.id,
+          code: canonical.code,
+          subjectId: canonical.subject_id,
+          subjectCode: canonical.subject_code,
+          subjectName: canonical.subject_name,
+          rootGroupId: canonical.root_course_group_id,
+          cycleId,
+          cycleLabel,
+          level: mergeGroup.level,
+          mergeGroupId: mergeGroup.id,
+          setupCourseId: canonical.id,
+          missingCycle: mergeGroup.level !== null && !cycleId,
+        });
+      }
+    }
+
+    return { rows, entries };
+  }, [courses, mergeGroups]);
+
   const selectedGroup = groupOptions.find((group) => group.id === selectedGroupId) ?? groupOptions[0] ?? null;
   const selectedRootGroup = selectedGroup && !selectedGroup.virtual ? groups.find((group) => group.id === selectedGroup.id) ?? null : null;
-  const selectedCourses = useMemo(
-    () => selectedGroup ? groupCourses(courses, selectedGroup.id) : [],
-    [courses, selectedGroup],
-  );
-  const unassignedCourses = useMemo(
-    () => selectedCourses.filter((course) => course.level === null),
-    [selectedCourses],
+  const selectedCourses = useMemo(() => {
+    if (!selectedGroup) return [];
+    return groupCourses(courses, selectedGroup.id).sort((a, b) => {
+      const subject = a.subject_code.localeCompare(b.subject_code);
+      if (subject !== 0) return subject;
+      const cycleA = effective.rows.get(a.id)?.cycleLabel ?? a.cycle_label;
+      const cycleB = effective.rows.get(b.id)?.cycleLabel ?? b.cycle_label;
+      const cycle = cycleA.localeCompare(cycleB);
+      if (cycle !== 0) return cycle;
+      const levelA = effective.rows.get(a.id)?.displayLevel ?? a.level;
+      const levelB = effective.rows.get(b.id)?.displayLevel ?? b.level;
+      if (levelA === null && levelB !== null) return 1;
+      if (levelA !== null && levelB === null) return -1;
+      if (levelA !== null && levelB !== null && levelA !== levelB) return levelA - levelB;
+      return a.code.localeCompare(b.code);
+    });
+  }, [courses, effective, selectedGroup]);
+  const addableCourses = useMemo(
+    () => selectedCourses.filter((course) => {
+      const row = effective.rows.get(course.id);
+      return !row?.mergeGroup && row?.displayLevel === null && row?.canEditLevel;
+    }),
+    [effective, selectedCourses],
   );
 
   useEffect(() => {
@@ -108,66 +304,204 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
   }, [groupOptions, selectedGroupId]);
 
   useEffect(() => {
-    setDraftLevels(Object.fromEntries(courses.map((course) => [course.id, course.level?.toString() ?? ""])));
-  }, [courses]);
+    const previousPersisted = persistedRef.current;
+    const nextPersisted = new Map<string, string>();
+    for (const course of courses) {
+      nextPersisted.set(course.id, effective.rows.get(course.id)?.displayLevel?.toString() ?? "");
+    }
+    persistedRef.current = nextPersisted;
+    setDraftLevels((previous) => {
+      const next: Record<string, string> = {};
+      for (const course of courses) {
+        const row = effective.rows.get(course.id);
+        const baseline = nextPersisted.get(course.id) ?? "";
+        const previousBaseline = previousPersisted.get(course.id);
+        const draft = previous[course.id];
+        // A draft that predates the first baseline (for example, typed before the
+        // initial effect flushed) is still a user edit and must not be clobbered.
+        const dirty = draft !== undefined && (previousBaseline === undefined || draft !== previousBaseline);
+        next[course.id] = row?.canEditLevel && dirty ? draft : baseline;
+      }
+      return next;
+    });
+  }, [courses, effective]);
 
-  const suggestedCourse = unassignedCourses[0] ?? selectedCourses[0];
-  const highestLevel = selectedCourses.reduce((highest, course) => Math.max(highest, course.level ?? 0), 0);
-  const activeNewLevelCourseId = newLevelCourseId || suggestedCourse?.id || "";
-  const activeNewLevel = newLevel || String(highestLevel + 1);
+  const selectedGroupNeedsSitInRule = Boolean(selectedRootGroup && !selectedRootGroup.sit_in_rule_id);
+  const canEditLevels = Boolean(selectedGroup && !selectedGroup.virtual && selectedRootGroup?.sit_in_rule_id && !mergeConfigError);
+  const editingBlockedReason = mergeConfigError
+    ? "Linked course settings are unavailable, so level editing is disabled until they load."
+    : !selectedGroup || selectedGroup.virtual
+      ? "Move courses into a course group with a sit-in rule before setting levels."
+      : !selectedRootGroup?.sit_in_rule_id
+        ? "Assign a sit-in rule before adding or editing course levels."
+        : null;
   const selectedSitInRule = rules.find((rule) => rule.id === selectedRootGroup?.sit_in_rule_id) ?? null;
-  const selectedGroupHasLevels = selectedCourses.some((course) => course.level !== null);
-  const selectedGroupNeedsSitInRule = Boolean(selectedRootGroup && selectedGroupHasLevels && !selectedRootGroup.sit_in_rule_id);
-  const selectedGroupCanAssignLevels = selectedGroup?.virtual || Boolean(selectedRootGroup?.sit_in_rule_id);
+  const currentRuleUnavailable = Boolean(selectedRootGroup?.sit_in_rule_id && !selectedSitInRule);
+
+  function groupStatusFor(group: { id: string; virtual: boolean }): { status: LevelStatus; label: string; gaps: number } {
+    const rootGroupId = group.virtual ? null : group.id;
+    const entries = effective.entries.filter((entry) => entry.rootGroupId === rootGroupId);
+    if (entries.length === 0) return { status: "empty", label: "Empty", gaps: 0 };
+    const gaps = countGaps(entries);
+    const hasUnset = entries.some((entry) => entry.level === null);
+    const hasMissingCycle = entries.some((entry) => entry.missingCycle);
+    if (group.virtual) return { status: "attention", label: "Needs group", gaps };
+    // Linked effective values are unavailable, so readiness cannot be asserted.
+    if (mergeConfigError) return { status: "attention", label: "Needs attention", gaps };
+    const hasRule = Boolean(groups.find((item) => item.id === group.id)?.sit_in_rule_id);
+    if (!hasRule) return { status: "attention", label: "Rule needed", gaps };
+    if (hasUnset || hasMissingCycle || gaps > 0) return { status: "attention", label: "Needs attention", gaps };
+    return { status: "ready", label: "Ready", gaps: 0 };
+  }
 
   const summary = useMemo(() => {
-    const cycles = new Map<string, CourseLevelItem[]>();
-    for (const course of courses) {
-      const key = `${course.root_course_group_id ?? UNGROUPED_ID}:${course.cycle_id}`;
-      const cycleCourses = cycles.get(key) ?? [];
-      cycleCourses.push(course);
-      cycles.set(key, cycleCourses);
-    }
+    const assigned = courses.reduce((total, course) => total + ((effective.rows.get(course.id)?.displayLevel ?? null) !== null ? 1 : 0), 0);
+    const notSet = courses.length - assigned;
     return {
       totalCourses: courses.length,
-      assigned: courses.filter((course) => course.level !== null).length,
-      gaps: [...cycles.values()].reduce((total, cycleCourses) => total + detectGaps(cycleCourses).length, 0),
-      notSet: courses.filter((course) => course.level === null).length,
+      assigned,
+      gaps: countGaps(effective.entries),
+      notSet,
     };
-  }, [courses]);
+  }, [courses, effective]);
 
-  async function saveLevel(course: CourseLevelItem, rawLevel: string) {
-    const level = rawLevel.trim() === "" ? null : Number(rawLevel);
-    if (level !== null && (!Number.isInteger(level) || level < 1)) {
-      addToast("error", "Level must be a whole number greater than zero");
-      return;
+  const dirtyCount = (courseList: CourseLevelItem[]) => courseList.filter((course) => {
+    const baseline = effective.rows.get(course.id)?.displayLevel?.toString() ?? "";
+    return (draftLevels[course.id] ?? baseline) !== baseline;
+  }).length;
+  const selectedDirtyCount = dirtyCount(selectedCourses);
+
+  function clearRowError(courseId: string) {
+    setRowErrors((previous) => {
+      if (!(courseId in previous)) return previous;
+      const next = { ...previous };
+      delete next[courseId];
+      return next;
+    });
+  }
+
+  function setRowError(courseId: string, message: string) {
+    setRowErrors((previous) => ({ ...previous, [courseId]: message }));
+  }
+
+  function selectGroup(groupId: string) {
+    setSelectedGroupId(groupId);
+    setNewLevelCourseId("");
+    setNewLevel("");
+    setGroupError(null);
+    setRuleError(null);
+  }
+
+  // The database unique index is courses(subject_id, cycle_id, level) across the
+  // whole courses table (migration 00017), so duplicate preflight must ignore root
+  // course groups. Linked members are read-only, so raw course rows are authoritative
+  // for what this endpoint can write.
+  function conflictFor(course: CourseLevelItem, level: number): LevelConflict | null {
+    const cycleId = course.cycle_id || null;
+    if (!cycleId) return null;
+    const conflict = courses.find((item) =>
+      item.id !== course.id
+      && item.subject_id === course.subject_id
+      && (item.cycle_id || null) === cycleId
+      && item.level === level
+    );
+    if (!conflict) return null;
+    return {
+      code: conflict.code,
+      subjectName: conflict.subject_name,
+      cycleLabel: conflict.cycle_label || "No cycle",
+    };
+  }
+
+  function nextLevelFor(course: CourseLevelItem): number {
+    const row = effective.rows.get(course.id);
+    const key = scopeKey(course.root_course_group_id, course.subject_id, row?.cycleId ?? course.cycle_id);
+    const levels = effective.entries
+      .filter((entry) => scopeKey(entry.rootGroupId, entry.subjectId, entry.cycleId) === key && entry.level !== null)
+      .map((entry) => entry.level as number);
+    const highest = levels.length > 0 ? Math.max(...levels) : 0;
+    return Math.min(MAX_LEVEL, highest + 1);
+  }
+
+  async function saveLevel(course: CourseLevelItem, rawLevel: string): Promise<boolean> {
+    const row = effective.rows.get(course.id);
+    if (!row) return false;
+    if (mergeConfigError) {
+      setRowError(course.id, "Linked course settings are unavailable. Retry before editing levels.");
+      return false;
+    }
+    if (!row.canEditLevel) {
+      setRowError(course.id, row.readOnlyReason ?? "This course's level is managed elsewhere.");
+      return false;
+    }
+    if (!row.cycleId) {
+      setRowError(course.id, "Add a cycle to this course before setting its level.");
+      return false;
     }
     const courseGroup = course.root_course_group_id ? groups.find((group) => group.id === course.root_course_group_id) : null;
-    if (level !== null && courseGroup && !courseGroup.sit_in_rule_id) {
-      addToast("error", "Assign a sit-in rule to this course group before saving a level");
-      return;
+    if (!courseGroup) {
+      setRowError(course.id, "Move this course into a course group with a sit-in rule before setting a level.");
+      return false;
     }
+    if (!courseGroup.sit_in_rule_id) {
+      setRowError(course.id, "Assign a sit-in rule to this course group before saving a level.");
+      return false;
+    }
+
+    const trimmed = rawLevel.trim();
+    if (trimmed === "") {
+      if (row.displayLevel !== null) {
+        setRowError(course.id, "Levels cannot be removed from a levelled course. Move it to another course group instead.");
+        return false;
+      }
+      return true;
+    }
+
+    const level = Number(trimmed);
+    if (!Number.isInteger(level) || level < 1 || level > MAX_LEVEL) {
+      setRowError(course.id, `Level must be a whole number between 1 and ${MAX_LEVEL}.`);
+      return false;
+    }
+    const conflict = conflictFor(course, level);
+    if (conflict) {
+      setRowError(course.id, `Level ${level} is already used by ${conflict.code} in ${conflict.subjectName} (${conflict.cycleLabel}). Choose a different level.`);
+      return false;
+    }
+
     setSavingCourseId(course.id);
+    setRowErrors((previous) => {
+      if (!(course.id in previous)) return previous;
+      const next = { ...previous };
+      delete next[course.id];
+      return next;
+    });
     try {
       await apiJson(`/api/v1/admin/courses/${course.id}/level`, {
         method: "PUT",
         body: JSON.stringify({ level, cycle_id: course.cycle_id }),
       });
       onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, level } : item));
+      persistedRef.current.set(course.id, level.toString());
+      setDraftLevels((previous) => ({ ...previous, [course.id]: level.toString() }));
       addToast("success", `${course.code} level saved`);
+      return true;
     } catch (error) {
+      setRowError(course.id, error instanceof Error ? error.message : "Failed to save level");
       addToast("error", error instanceof Error ? error.message : "Failed to save level");
+      return false;
     } finally {
       setSavingCourseId(null);
     }
   }
 
-  async function saveSitInRule(ruleId: string | null) {
-    if (!selectedRootGroup || !ruleId) {
-      if (selectedRootGroup) addToast("error", "A sit-in rule is required for levelled course groups");
-      return;
+  async function saveSitInRule(ruleId: string | null): Promise<boolean> {
+    if (!selectedRootGroup) return false;
+    if (!ruleId) {
+      setRuleError("A sit-in rule is required for levelled course groups.");
+      return false;
     }
     setSavingSitInRule(true);
+    setRuleError(null);
     try {
       await apiJson(`/api/v1/admin/root-course-groups/${selectedRootGroup.id}`, {
         method: "PUT",
@@ -175,20 +509,28 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
       });
       onGroupsChange((previous) => previous.map((group) => group.id === selectedRootGroup.id ? { ...group, sit_in_rule_id: ruleId } : group));
       addToast("success", "Sit-in rule assigned");
+      return true;
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to update sit-in rule");
+      const message = error instanceof Error ? error.message : "Failed to update sit-in rule";
+      setRuleError(message);
+      addToast("error", message);
+      return false;
     } finally {
       setSavingSitInRule(false);
     }
   }
 
   async function addLevel() {
-    const course = selectedCourses.find((item) => item.id === activeNewLevelCourseId);
-    if (course) {
-      await saveLevel(course, activeNewLevel);
-      setNewLevelCourseId("");
-      setNewLevel("");
+    const course = selectedCourses.find((item) => item.id === newLevelCourseId);
+    if (!course) {
+      setRowErrors((previous) => ({ ...previous, __add__: "Choose a course before adding a level." }));
+      return;
     }
+    const saved = await saveLevel(course, newLevel);
+    if (!saved) return;
+    setNewLevelCourseId("");
+    setNewLevel("");
+    clearRowError("__add__");
   }
 
   async function createGroup() {
@@ -236,13 +578,24 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
     }
   }
 
-  async function deleteGroup(groupId: string) {
-    if (!window.confirm("Delete this group? Its courses will become unassigned.")) return;
+  function requestDeleteGroup(group: RootCourseGroupInfo) {
+    const count = courses.filter((course) => course.root_course_group_id === group.id).length;
+    if (count > 0) {
+      setGroupError(`Move ${count} course${count === 1 ? "" : "s"} out first. Course groups can only be deleted after every course is moved or unassigned.`);
+      return;
+    }
+    setGroupError(null);
+    setDeleteTarget(group);
+  }
+
+  async function deleteGroup() {
+    if (!deleteTarget) return;
+    setDeletingGroup(true);
     setGroupError(null);
     try {
-      await apiJson(`/api/v1/admin/root-course-groups/${groupId}`, { method: "DELETE" });
-      onGroupsChange((previous) => previous.filter((group) => group.id !== groupId));
-      onCoursesChange((previous) => previous.map((course) => course.root_course_group_id === groupId ? { ...course, root_course_group_id: null, root_course_group_name: null } : course));
+      await apiJson(`/api/v1/admin/root-course-groups/${deleteTarget.id}`, { method: "DELETE" });
+      onGroupsChange((previous) => previous.filter((group) => group.id !== deleteTarget.id));
+      onCoursesChange((previous) => previous.map((course) => course.root_course_group_id === deleteTarget.id ? { ...course, root_course_group_id: null, root_course_group_name: null } : course));
       setSelectedGroupId(UNGROUPED_ID);
       setNewLevelCourseId("");
       setNewLevel("");
@@ -251,13 +604,20 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
       const message = error instanceof Error ? error.message : "Failed to delete course group";
       setGroupError(message);
       addToast("error", message);
+    } finally {
+      setDeletingGroup(false);
+      setDeleteTarget(null);
     }
   }
 
   async function assignCourse(courseId: string) {
-    if (!selectedGroup || selectedGroup.virtual || savingCourseId) return;
+    if (!selectedGroup || selectedGroup.virtual || savingCourseId || mergeConfigError) return;
     const course = courses.find((item) => item.id === courseId);
     if (!course || course.root_course_group_id === selectedGroup.id) return;
+    if (effective.rows.get(course.id)?.mergeGroup) {
+      addToast("error", "Linked courses cannot be moved between course groups. Manage the link in Sit-in Rules.");
+      return;
+    }
     if (course.level !== null && !selectedRootGroup?.sit_in_rule_id) {
       addToast("error", "Assign a sit-in rule before adding a levelled course to this group");
       return;
@@ -275,88 +635,514 @@ export default function CourseLevelManagerPanel({ courses, groups, rules, onCour
   }
 
   async function moveCourse(course: CourseLevelItem, groupId: string) {
+    const row = effective.rows.get(course.id);
+    if (row?.mergeGroup) {
+      setRowError(course.id, "Linked courses cannot be moved between course groups. Manage the link in Sit-in Rules.");
+      return;
+    }
+    if (mergeConfigError) {
+      setRowError(course.id, "Linked course settings are unavailable. Retry before moving courses.");
+      return;
+    }
     const nextGroup = groups.find((group) => group.id === groupId) ?? null;
     const nextGroupId = groupId || null;
     if (course.root_course_group_id === nextGroupId) return;
-    if (course.level !== null && nextGroup && !nextGroup.sit_in_rule_id) {
-      addToast("error", "Assign a sit-in rule before moving a levelled course into this group");
+    if (!nextGroupId && (row?.displayLevel ?? course.level) !== null) {
+      setRowError(course.id, "Levelled courses cannot be left unassigned. Move this course to another group with a sit-in rule instead.");
+      return;
+    }
+    if ((row?.displayLevel ?? course.level) !== null && nextGroup && !nextGroup.sit_in_rule_id) {
+      setRowError(course.id, "Assign a sit-in rule before moving a levelled course into this group.");
       return;
     }
     setSavingCourseId(course.id);
+    clearRowError(course.id);
     try {
       await apiJson(`/api/v1/admin/courses/${course.id}/root-course-group`, { method: "PUT", body: JSON.stringify({ root_course_group_id: nextGroupId }) });
       onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, root_course_group_id: nextGroupId, root_course_group_name: nextGroup?.name ?? null } : item));
       addToast("success", `${course.code} group updated`);
     } catch (error) {
-      addToast("error", error instanceof Error ? error.message : "Failed to update course group");
+      const message = error instanceof Error ? error.message : "Failed to update course group";
+      setRowError(course.id, message);
+      addToast("error", message);
     } finally {
       setSavingCourseId(null);
     }
   }
 
-  const courseOptions = courses.map((course) => ({
-    value: course.id,
-    label: `${course.code} — ${course.name}`,
-    description: `${course.subject_name} · ${course.cycle_label}`,
-    keywords: `${course.code} ${course.name} ${course.subject_code} ${course.subject_name}`,
-    disabled: course.root_course_group_id === selectedGroup?.id,
-  }));
+  function handleNewLevelCourseChange(value: string) {
+    setNewLevelCourseId(value);
+    clearRowError("__add__");
+    const course = selectedCourses.find((item) => item.id === value);
+    setNewLevel(course ? String(nextLevelFor(course)) : "");
+  }
+
+  const courseOptions = courses
+    .filter((course) => course.root_course_group_id !== selectedGroup?.id && !effective.rows.get(course.id)?.mergeGroup)
+    .map((course) => ({
+      value: course.id,
+      label: `${course.code} — ${course.name}`,
+      keywords: `${course.code} ${course.name} ${course.subject_code} ${course.subject_name}`,
+    }));
   const groupCourseOptions = [{ value: "", label: "— Unassigned —" }, ...groups.map((group) => ({ value: group.id, label: group.name }))];
+  const selectedGroupDetails = selectedGroup ? groupStatusFor(selectedGroup) : { status: "empty" as LevelStatus, label: "Empty", gaps: 0 };
+  const selectedEntries = selectedGroup && !selectedGroup.virtual
+    ? effective.entries.filter((entry) => entry.rootGroupId === selectedGroup.id)
+    : [];
+  const selectedMissingCycleEntry = selectedEntries.find((entry) => entry.missingCycle) ?? null;
+  const selectedLinkedCount = selectedCourses.filter((course) => effective.rows.get(course.id)?.mergeGroup).length;
+  const addError = rowErrors.__add__ ?? (newLevelCourseId ? rowErrors[newLevelCourseId] : undefined) ?? null;
 
   return (
     <div className="space-y-4">
-      {groupError ? <div className="rounded-sm border border-[var(--color-wi-red)]/20 bg-[var(--color-wi-danger-bg)] px-3 py-2 text-sm text-[var(--color-wi-red)]" role="alert">{groupError}</div> : null}
+      {mergeConfigError ? (
+        <div role="alert" className="rounded-sm border border-[var(--color-wi-amber)]/40 bg-[var(--color-wi-amber-bg)] px-3 py-3 text-sm">
+          <p className="font-semibold text-[var(--color-wi-text)]">Linked course settings could not be loaded.</p>
+          <p className="mt-1 text-[var(--color-wi-text-light)]">
+            Level editing is disabled and readiness is not shown, because a linked course's effective level and cycle are unknown until this list loads. Existing rule assignments are preserved.
+            {mergeConfigError ? ` ${mergeConfigError}` : ""}
+          </p>
+          {onRetryMergeConfig ? (
+            <Button variant="secondary" size="sm" className="mt-2" loading={mergeConfigRetrying} onClick={onRetryMergeConfig}>
+              Retry linked course settings
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {rulesError ? (
+        <div role="alert" className="rounded-sm border border-[var(--color-wi-amber)]/40 bg-[var(--color-wi-amber-bg)] px-3 py-3 text-sm">
+          <p className="font-semibold text-[var(--color-wi-text)]">Sit-in rules could not be loaded.</p>
+          <p className="mt-1 text-[var(--color-wi-text-light)]">
+            Existing rule assignments are preserved, but rule selection is disabled until the list loads.
+            {rulesError ? ` ${rulesError}` : ""}
+          </p>
+          {onRetryRules ? (
+            <Button variant="secondary" size="sm" className="mt-2" loading={rulesRetrying} onClick={onRetryRules}>
+              Retry sit-in rules
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {groupError ? <div className="rounded-sm border border-[var(--color-wi-red)]/20 bg-[var(--color-wi-danger-bg)] px-3 py-2 text-sm text-[var(--color-wi-red-dark)]" role="alert">{groupError}</div> : null}
 
-      <section className="grid grid-cols-2 gap-2 rounded-md border border-wi-line bg-white p-3 sm:grid-cols-4" aria-label="Course level status summary">
+      <section className="grid grid-cols-2 gap-2 rounded-md border border-wi-line bg-[var(--color-wi-callout)] p-3 sm:grid-cols-4" aria-label="Course level status summary">
         <SummaryMetric label="Total courses" value={summary.totalCourses} tone="blue" />
         <SummaryMetric label="Assigned levels" value={summary.assigned} tone="green" />
         <SummaryMetric label="Gaps" value={summary.gaps} tone="amber" />
         <SummaryMetric label="Not set" value={summary.notSet} tone="red" />
       </section>
 
-      <div className="grid min-h-[28rem] gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <aside className="overflow-hidden rounded-md border border-wi-line bg-white" aria-label="Course groups">
-          <div className="flex items-center justify-between border-b border-wi-line px-3 py-3"><h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Course groups</h3><span className="rounded bg-[var(--color-wi-row-alt)] px-1.5 py-0.5 text-xs text-[var(--color-wi-text-light)]">{groupOptions.length}</span></div>
-          <div className="max-h-[25rem] overflow-y-auto">
+      <section aria-label="Course group settings" className="rounded-md border border-wi-line bg-[var(--color-wi-row-alt)] p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[12rem] flex-1">
+            <label htmlFor="new-course-group" className="mb-1 block text-xs font-medium text-[var(--color-wi-text)]">New course group</label>
+            <Input
+              id="new-course-group"
+              value={newGroupName}
+              onChange={(event) => setNewGroupName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void createGroup(); }}
+              placeholder="New group name"
+              size="sm"
+            />
+          </div>
+          <Button size="sm" onClick={() => void createGroup()} disabled={!newGroupName.trim()} loading={savingGroup} aria-label="Add course group">Add group</Button>
+        </div>
+        <div className="mt-3 border-t border-wi-line pt-3 lg:hidden">
+          {selectedRootGroup ? (
+            <div className="flex flex-wrap items-end gap-2">
+              {editingGroupId === selectedRootGroup.id ? (
+                <>
+                  <div className="min-w-[12rem] flex-1">
+                    <label htmlFor="rename-course-group" className="mb-1 block text-xs font-medium text-[var(--color-wi-text)]">Group name</label>
+                    <Input
+                      id="rename-course-group"
+                      aria-label={`Rename selected group ${selectedRootGroup.name}`}
+                      value={editingGroupName}
+                      onChange={(event) => setEditingGroupName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void renameGroup(selectedRootGroup.id);
+                        if (event.key === "Escape") setEditingGroupId(null);
+                      }}
+                      size="sm"
+                    />
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => void renameGroup(selectedRootGroup.id)} disabled={savingGroup} aria-label={`Save name for selected group ${selectedRootGroup.name}`}>Save</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingGroupId(null)} aria-label={`Cancel rename for selected group ${selectedRootGroup.name}`}>Cancel</Button>
+                </>
+              ) : (
+                <>
+                  <p className="flex-1 text-xs text-[var(--color-wi-text)]">Rename or delete {selectedRootGroup.name}. A group can only be deleted once every course is moved out.</p>
+                  <Button size="sm" variant="secondary" onClick={() => { setEditingGroupId(selectedRootGroup.id); setEditingGroupName(selectedRootGroup.name); }} aria-label={`Rename selected group ${selectedRootGroup.name}`}>Rename group</Button>
+                  <Button size="sm" variant="ghost" className="text-[var(--color-wi-red)]" onClick={() => requestDeleteGroup(selectedRootGroup)} aria-label={`Delete selected group ${selectedRootGroup.name}`}>Delete group</Button>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-[var(--color-wi-text)]">Select a course group to rename or delete it.</p>
+          )}
+        </div>
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="hidden overflow-hidden rounded-md border border-wi-line bg-white lg:block" aria-label="Course groups">
+          <div className="flex items-center justify-between border-b border-wi-line px-3 py-3">
+            <h3 className="text-sm font-semibold text-[var(--color-wi-text)]">Course groups</h3>
+            <span className="rounded bg-[var(--color-wi-row-alt)] px-1.5 py-0.5 text-xs text-[var(--color-wi-text)]">{groupOptions.length}</span>
+          </div>
+          <div className="lg:max-h-[25rem] lg:overflow-y-auto">
             {groupOptions.map((group) => {
-              const groupInfo = group.virtual ? null : groups.find((item) => item.id === group.id);
-              const details = groupStatus(groupCourses(courses, group.id), group.virtual || Boolean(groupInfo?.sit_in_rule_id));
+              const details = groupStatusFor(group);
               const isSelected = group.id === selectedGroup?.id;
               return (
                 <div key={group.id} className={`border-b border-wi-line-soft ${isSelected ? "bg-[var(--color-wi-selected)]" : "hover:bg-[var(--color-wi-row-alt)]"}`}>
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(details.status)}`} aria-hidden="true" />
-                    {editingGroupId === group.id ? <Input aria-label={`Rename ${group.name}`} value={editingGroupName} onChange={(event) => setEditingGroupName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void renameGroup(group.id); if (event.key === "Escape") setEditingGroupId(null); }} size="sm" autoFocus className="min-w-0" /> : <button type="button" onClick={() => { setSelectedGroupId(group.id); setNewLevelCourseId(""); setNewLevel(""); }} aria-pressed={isSelected} className={`min-w-0 flex-1 truncate text-left text-sm ${isSelected ? "font-semibold text-[var(--color-wi-primary)]" : "text-[var(--color-wi-text)]"}`}>{group.name}</button>}
-                    <span className="shrink-0 rounded bg-[var(--color-wi-row-alt)] px-1.5 py-0.5 text-xs text-[var(--color-wi-text-light)]">{group.courseCount}</span>
+                    <div className="min-w-0 flex-1">
+                      {editingGroupId === group.id ? (
+                        <Input
+                          aria-label={`Rename ${group.name}`}
+                          value={editingGroupName}
+                          onChange={(event) => setEditingGroupName(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void renameGroup(group.id);
+                            if (event.key === "Escape") setEditingGroupId(null);
+                          }}
+                          size="sm"
+                          autoFocus
+                        />
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => selectGroup(group.id)} aria-pressed={isSelected} className={`block w-full truncate text-left text-sm ${isSelected ? "font-semibold text-[var(--color-wi-primary-dark)]" : "text-[var(--color-wi-text)]"}`}>{group.name}</button>
+                          <p className="mt-0.5 text-[11px] text-[var(--color-wi-text)]">{details.label}</p>
+                        </>
+                      )}
+                    </div>
+                    <span className="shrink-0 rounded bg-[var(--color-wi-row-alt)] px-1.5 py-0.5 text-xs text-[var(--color-wi-text)]">{group.courseCount}</span>
                   </div>
-                  {!group.virtual ? <div className="flex justify-end gap-2 px-3 pb-2">{editingGroupId === group.id ? <><button type="button" onClick={() => void renameGroup(group.id)} disabled={savingGroup} className="text-xs font-medium text-[var(--color-wi-primary)]">Save</button><button type="button" onClick={() => setEditingGroupId(null)} className="text-xs text-[var(--color-wi-text-light)]">Cancel</button></> : <><button type="button" onClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }} className="text-xs text-[var(--color-wi-primary)]">Rename</button><button type="button" onClick={() => void deleteGroup(group.id)} className="text-xs text-[var(--color-wi-red)]">Delete</button></>}</div> : null}
+                  {!group.virtual ? (
+                    <div className="flex justify-end gap-2 px-3 pb-2">
+                      {editingGroupId === group.id ? (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => void renameGroup(group.id)} disabled={savingGroup} aria-label={`Save name for ${group.name}`}>Save</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingGroupId(null)} aria-label={`Cancel rename for ${group.name}`}>Cancel</Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }} aria-label={`Rename ${group.name}`}>Rename</Button>
+                          <Button size="sm" variant="ghost" className="text-[var(--color-wi-red)]" onClick={() => requestDeleteGroup(groups.find((item) => item.id === group.id) ?? { id: group.id, name: group.name, course_count: group.courseCount, sit_in_rule_id: null })} aria-label={`Delete ${group.name}`}>Delete</Button>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
           </div>
-          <div className="border-t border-wi-line p-3"><label htmlFor="new-course-group" className="sr-only">New course group name</label><div className="flex gap-2"><Input id="new-course-group" value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void createGroup(); }} placeholder="New group name" size="sm" /><Button size="sm" onClick={() => void createGroup()} disabled={!newGroupName.trim()} loading={savingGroup}>Add</Button></div></div>
         </aside>
 
         <section className="min-w-0 rounded-md border border-wi-line bg-white" aria-labelledby="selected-course-group-heading">
-          {selectedGroup ? <>
-            <div className="border-b border-wi-line px-4 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-wi-text-light)]">Selected group</p><h3 id="selected-course-group-heading" className="mt-1 text-lg font-semibold text-[var(--color-wi-text)]">{selectedGroup.name}</h3><p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Edit level assignments and status for every course in this group.</p></div><span className="inline-flex items-center gap-1.5 rounded-full border border-wi-line px-2.5 py-1 text-xs font-medium text-[var(--color-wi-text-light)]"><span className={`h-1.5 w-1.5 rounded-full ${statusDot(groupStatus(selectedCourses, selectedGroup.virtual || Boolean(selectedRootGroup?.sit_in_rule_id)).status)}`} aria-hidden="true" />{groupStatus(selectedCourses, selectedGroup.virtual || Boolean(selectedRootGroup?.sit_in_rule_id)).label}</span></div>
-              {!selectedGroup.virtual ? <div className={`mt-4 rounded-sm border px-3 py-3 ${selectedGroupNeedsSitInRule ? "border-[var(--color-wi-amber)]/40 bg-amber-50" : "border-wi-line bg-[var(--color-wi-row-alt)]"}`} aria-label="Sit-in rule configuration"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className={`text-sm font-semibold ${selectedGroupNeedsSitInRule ? "text-amber-900" : "text-[var(--color-wi-text)]"}`}>{selectedGroupNeedsSitInRule ? "Sit-in rule required" : "Sit-in rule"}</p><p className={`mt-1 text-xs ${selectedGroupNeedsSitInRule ? "text-amber-800" : "text-[var(--color-wi-text-light)]"}`}>{selectedGroupNeedsSitInRule ? "Levelled courses need a sit-in rule before this group can be marked Ready. The rule determines the sit-in destination." : selectedSitInRule ? `Configured: ${selectedSitInRule.name}` : "No rule assigned. Students cannot be matched to a sit-in destination."}</p></div><div className="w-full sm:w-64"><label htmlFor="selected-group-sit-in-rule" className="sr-only">Sit-in rule for {selectedGroup.name}</label><SearchableSelect id="selected-group-sit-in-rule" aria-label={`Sit-in rule for ${selectedGroup.name}`} value={selectedRootGroup?.sit_in_rule_id ?? ""} onChange={(event) => void saveSitInRule(event.target.value || null)} disabled={savingSitInRule || rules.length === 0} size="sm">{!selectedRootGroup?.sit_in_rule_id ? <option value="">No rule assigned</option> : null}{rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}</SearchableSelect>{rules.length === 0 ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">No sit-in rules are available. Create one in Sit-in Rules first.</p> : null}</div></div></div> : null}
-              <div className="mt-3 rounded-sm bg-[var(--color-wi-row-alt)] p-3"><div className="flex flex-wrap items-end gap-3"><div className="min-w-[16rem] flex-1"><label htmlFor="add-level-course" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Add level to an unassigned course</label><TypeaheadSelect id="add-level-course" value={activeNewLevelCourseId} onChange={setNewLevelCourseId} options={selectedCourses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, keywords: `${course.code} ${course.name} ${course.subject_name}`, disabled: course.level !== null }))} placeholder={!selectedGroupCanAssignLevels ? "Assign a sit-in rule first" : unassignedCourses.length > 0 ? "Choose a course" : "All courses have levels"} disabled={!selectedGroupCanAssignLevels || unassignedCourses.length === 0 || savingCourseId !== null} /></div><div className="w-28"><label htmlFor="add-level-number" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Level number</label><Input id="add-level-number" type="number" min={1} step={1} value={activeNewLevel} onChange={(event) => setNewLevel(event.target.value)} disabled={!selectedGroupCanAssignLevels || unassignedCourses.length === 0 || savingCourseId !== null} /></div><Button onClick={() => void addLevel()} disabled={!selectedGroupCanAssignLevels || !activeNewLevelCourseId || unassignedCourses.length === 0 || savingCourseId !== null} loading={savingCourseId === activeNewLevelCourseId}>Add level</Button></div><p className="mt-2 text-xs text-[var(--color-wi-text-light)]">{selectedGroupCanAssignLevels ? "Assign a level to an unassigned course. Existing rows can be edited below." : "Assign a sit-in rule before adding or editing course levels."}</p></div>
-              {!selectedGroup.virtual ? <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-[var(--color-wi-text-light)]">Add course to {selectedGroup.name}</span><TypeaheadSelect id="add-course-to-group" aria-label={`Add course to ${selectedGroup.name}`} value="" onChange={(value) => void assignCourse(value)} options={courseOptions} placeholder="Search by course code or subject" disabled={savingCourseId !== null} className="min-w-[min(24rem,100%)] flex-1" /></div> : null}
-            </div>
-            <div className="overflow-x-auto"><table className="min-w-[44rem] w-full text-sm"><caption className="sr-only">Course levels in {selectedGroup.name}</caption><thead className="bg-[var(--color-wi-row-alt)] text-left text-xs text-[var(--color-wi-text-light)]"><tr><th scope="col" className="px-4 py-2.5 font-medium">Level</th><th scope="col" className="px-4 py-2.5 font-medium">Course</th><th scope="col" className="px-4 py-2.5 font-medium">Cycle</th><th scope="col" className="px-4 py-2.5 font-medium">Subject</th><th scope="col" className="px-4 py-2.5 font-medium">Status</th><th scope="col" className="px-4 py-2.5 text-right font-medium">Actions</th></tr></thead><tbody>
-              {selectedCourses.map((course) => { const draftLevel = draftLevels[course.id] ?? ""; const dirty = draftLevel !== (course.level?.toString() ?? ""); const levelValue = draftLevel === "" ? null : Number(draftLevel); return <tr key={course.id} className="border-t border-wi-line-soft hover:bg-[var(--color-wi-row-alt)]"><td className="px-4 py-3"><Input aria-label={`Level for ${course.code}`} type="number" min={1} step={1} value={draftLevel} onChange={(event) => setDraftLevels((previous) => ({ ...previous, [course.id]: event.target.value }))} size="sm" className="w-20 border-[var(--color-wi-primary)]" /></td><td className="px-4 py-3"><p className="font-mono text-xs font-semibold text-[var(--color-wi-text)]">{course.code}</p><p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]">{course.name}</p></td><td className="px-4 py-3 text-xs text-[var(--color-wi-text-light)]">{course.cycle_label}</td><td className="px-4 py-3 text-xs text-[var(--color-wi-text-light)]">{course.subject_name}</td><td className="px-4 py-3"><StatusBadge level={Number.isInteger(levelValue) ? levelValue : null} /></td><td className="px-4 py-3 text-right"><div className="flex items-center justify-end gap-2"><Button variant="secondary" size="sm" disabled={!dirty} loading={savingCourseId === course.id} onClick={() => void saveLevel(course, draftLevel)}>Save</Button><TypeaheadSelect aria-label={`Move ${course.code} to group`} value={course.root_course_group_id ?? ""} onChange={(value) => void moveCourse(course, value)} options={groupCourseOptions} placeholder="Group" disabled={savingCourseId === course.id} className="w-32" /></div></td></tr>; })}
-              {selectedCourses.length === 0 ? <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-[var(--color-wi-text-light)]">No courses in this group yet.</td></tr> : null}
-            </tbody></table></div>
-          </> : <div className="flex min-h-[28rem] items-center justify-center p-8 text-sm text-[var(--color-wi-text-light)]">Add a course group to start managing levels.</div>}
+          {selectedGroup ? (
+            <>
+              <div className="border-b border-wi-line px-4 py-4">
+                <div className="lg:hidden">
+                  <label htmlFor="course-group-picker" className="mb-1 block text-xs font-medium text-[var(--color-wi-text-light)]">Course group</label>
+                  <SearchableSelect
+                    id="course-group-picker"
+                    aria-label="Course group"
+                    value={selectedGroup.id}
+                    onChange={(event) => selectGroup(event.target.value)}
+                    size="sm"
+                  >
+                    {groupOptions.map((group) => <option key={group.id} value={group.id}>{group.name} ({group.courseCount})</option>)}
+                  </SearchableSelect>
+                </div>
+                <div className="mt-3 flex flex-wrap items-start justify-between gap-3 lg:mt-0">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--color-wi-text-light)]">Selected group</p>
+                    <h3 id="selected-course-group-heading" className="mt-1 text-lg font-semibold text-[var(--color-wi-text)]">{selectedGroup.name}</h3>
+                    <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Edit level assignments and status for every course in this group.</p>
+                  </div>
+                  <div className="flex flex-col items-start gap-1 sm:items-end">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-wi-line px-2.5 py-1 text-xs font-medium text-[var(--color-wi-text-light)]">
+                      <span className={`h-1.5 w-1.5 rounded-full ${statusDot(selectedGroupDetails.status)}`} aria-hidden="true" />
+                      {selectedGroupDetails.label}
+                    </span>
+                    {selectedDirtyCount > 0 ? <span className="text-xs font-medium text-[var(--color-wi-text)]">{selectedDirtyCount} unsaved {selectedDirtyCount === 1 ? "change" : "changes"}</span> : null}
+                  </div>
+                </div>
+
+                {!selectedGroup.virtual ? (
+                  <div className={`mt-4 rounded-sm border px-3 py-3 ${selectedGroupNeedsSitInRule ? "border-[var(--color-wi-amber)]/40 bg-[var(--color-wi-amber-bg)]" : "border-wi-line bg-[var(--color-wi-row-alt)]"}`} aria-label="Sit-in rule configuration">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-sm font-semibold text-[var(--color-wi-text)]">{selectedGroupNeedsSitInRule ? "Sit-in rule required" : "Sit-in rule"}</h4>
+                        <p className="mt-1 text-xs text-[var(--color-wi-text)]">
+                          {selectedGroupNeedsSitInRule
+                            ? "Levelled courses need a sit-in rule before this group can be marked Ready. The rule determines the sit-in destination."
+                            : selectedSitInRule
+                              ? `Configured: ${selectedSitInRule.name}`
+                              : currentRuleUnavailable
+                                ? "A rule is assigned, but its details are unavailable."
+                                : "No rule assigned. Students cannot be matched to a sit-in destination."}
+                        </p>
+                        {ruleError ? <p id="sit-in-rule-error" role="alert" className="mt-2 text-xs font-medium text-[var(--color-wi-red-dark)]">{ruleError}</p> : null}
+                        <Link to={SIT_IN_RULES_HREF} className="mt-2 inline-flex min-h-[28px] items-center gap-1 text-xs font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">
+                          Manage in Sit-in Rules
+                          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                        </Link>
+                      </div>
+                      <div className="w-full sm:w-64">
+                        <label htmlFor="selected-group-sit-in-rule" className="sr-only">Sit-in rule for {selectedGroup.name}</label>
+                        <SearchableSelect
+                          id="selected-group-sit-in-rule"
+                          aria-label={`Sit-in rule for ${selectedGroup.name}`}
+                          value={selectedRootGroup?.sit_in_rule_id ?? ""}
+                          onChange={(event) => void saveSitInRule(event.target.value || null)}
+                          disabled={savingSitInRule || Boolean(rulesError)}
+                          size="sm"
+                          error={Boolean(ruleError)}
+                          describedBy={ruleError ? "sit-in-rule-error" : undefined}
+                        >
+                          {!selectedRootGroup?.sit_in_rule_id ? <option value="">No rule assigned</option> : null}
+                          {currentRuleUnavailable ? <option value={selectedRootGroup?.sit_in_rule_id ?? ""}>{rulesError ? "Current rule (list unavailable)" : "Current rule (not in list)"}</option> : null}
+                          {rules.map((rule) => <option key={rule.id} value={rule.id}>{rule.name}</option>)}
+                        </SearchableSelect>
+                        {rules.length === 0 && !rulesError ? <p className="mt-1 text-xs text-[var(--color-wi-text)]">No sit-in rules are available. Create one in Sit-in Rules first.</p> : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedMissingCycleEntry ? (
+                  <div role="status" className="mt-3 rounded-sm border border-[var(--color-wi-amber)]/40 bg-[var(--color-wi-amber-bg)] px-3 py-3 text-xs">
+                    <p className="font-semibold text-[var(--color-wi-text)]">A level is set without a cycle</p>
+                    <p className="mt-1 text-[var(--color-wi-text)]">
+                      This group cannot be Ready until every levelled course has a cycle, because levels are scoped by subject and cycle.
+                    </p>
+                    <Link to={`/courses/${selectedMissingCycleEntry.setupCourseId}`} className="mt-1 inline-flex min-h-[28px] items-center gap-1 font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">
+                      Open course setup for {selectedMissingCycleEntry.code}
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </Link>
+                  </div>
+                ) : null}
+
+                {selectedLinkedCount > 0 ? (
+                  <div className="mt-3 rounded-sm border border-wi-line bg-[var(--color-wi-callout)] px-3 py-3 text-xs">
+                    <p className="font-semibold text-[var(--color-wi-text)]">{selectedLinkedCount} linked {selectedLinkedCount === 1 ? "course" : "courses"} in this group</p>
+                    <p className="mt-1 text-[var(--color-wi-text)]">
+                      Linked rows show the effective level reported by Sit-in Rules. That value can be inherited from the source course or overridden by the link, and this screen cannot tell which, so the rows are read-only.
+                    </p>
+                    <Link to={SIT_IN_RULES_HREF} className="mt-1 inline-flex min-h-[28px] items-center gap-1 font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">
+                      Review links in Sit-in Rules
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </Link>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 rounded-sm bg-[var(--color-wi-row-alt)] p-3">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="min-w-[16rem] flex-1">
+                      <label htmlFor="add-level-course" className="mb-1 block text-xs font-medium text-[var(--color-wi-text)]">Course</label>
+                      <TypeaheadSelect
+                        id="add-level-course"
+                        aria-label="Course for new level"
+                        value={newLevelCourseId}
+                        onChange={handleNewLevelCourseChange}
+                        options={addableCourses.map((course) => ({
+                          value: course.id,
+                          label: `${course.code} — ${course.name}`,
+                          keywords: `${course.code} ${course.name} ${course.subject_name}`,
+                        }))}
+                        placeholder={!canEditLevels ? "Level editing is disabled" : addableCourses.length > 0 ? "Choose a course" : "All courses have levels"}
+                        disabled={!canEditLevels || addableCourses.length === 0 || savingCourseId !== null}
+                        aria-invalid={Boolean(addError)}
+                        aria-describedby={addError ? "add-level-error" : undefined}
+                      />
+                    </div>
+                    <div className="w-28">
+                      <label htmlFor="add-level-number" className="mb-1 block text-xs font-medium text-[var(--color-wi-text)]">Level</label>
+                      <Input
+                        id="add-level-number"
+                        type="number"
+                        min={1}
+                        max={MAX_LEVEL}
+                        step={1}
+                        value={newLevel}
+                        onChange={(event) => { setNewLevel(event.target.value); clearRowError("__add__"); }}
+                        disabled={!canEditLevels || !newLevelCourseId || addableCourses.length === 0 || savingCourseId !== null}
+                        error={Boolean(addError)}
+                        describedBy={addError ? "add-level-error" : undefined}
+                      />
+                    </div>
+                    <Button
+                      onClick={() => void addLevel()}
+                      disabled={!canEditLevels || !newLevelCourseId || newLevel.trim() === "" || addableCourses.length === 0 || savingCourseId !== null}
+                      loading={savingCourseId === newLevelCourseId}
+                      aria-label="Add level"
+                    >
+                      Add level
+                    </Button>
+                  </div>
+                  {addError ? <p id="add-level-error" role="alert" className="mt-2 text-xs font-medium text-[var(--color-wi-red-dark)]">{addError}</p> : null}
+                  <p className="mt-2 text-xs text-[var(--color-wi-text)]">{canEditLevels ? "Assign a level to an unassigned course. Existing rows can be edited below." : editingBlockedReason}</p>
+                </div>
+
+                {!selectedGroup.virtual ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-[var(--color-wi-text-light)]">Add course to {selectedGroup.name}</span>
+                    <TypeaheadSelect
+                      id="add-course-to-group"
+                      aria-label={`Add course to ${selectedGroup.name}`}
+                      value=""
+                      onChange={(value) => void assignCourse(value)}
+                      options={courseOptions}
+                      placeholder={courseOptions.length > 0 ? "Search by course code or subject" : "No courses available to add"}
+                      disabled={savingCourseId !== null || Boolean(mergeConfigError) || courseOptions.length === 0}
+                      className="min-w-[min(24rem,100%)] flex-1"
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="overflow-x-auto border-t border-wi-line" role="region" aria-label="Course levels table" tabIndex={0}>
+                <table className="block w-full text-sm md:table">
+                  <caption className="sr-only">Course levels in {selectedGroup.name}</caption>
+                  <thead className="hidden bg-[var(--color-wi-row-alt)] text-left text-xs text-[var(--color-wi-text)] md:table-header-group">
+                    <tr>
+                      <th scope="col" className="px-4 py-2.5 font-medium"><span className="text-[var(--color-wi-text)]">Level</span></th>
+                      <th scope="col" className="px-4 py-2.5 font-medium"><span className="text-[var(--color-wi-text)]">Course</span></th>
+                      <th scope="col" className="px-4 py-2.5 font-medium"><span className="text-[var(--color-wi-text)]">Cycle</span></th>
+                      <th scope="col" className="px-4 py-2.5 font-medium"><span className="text-[var(--color-wi-text)]">Subject</span></th>
+                      <th scope="col" className="px-4 py-2.5 font-medium"><span className="text-[var(--color-wi-text)]">Status</span></th>
+                      <th scope="col" className="px-4 py-2.5 text-right font-medium"><span className="text-[var(--color-wi-text)]">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody className="block md:table-row-group">
+                    {selectedCourses.map((course) => {
+                      const row = effective.rows.get(course.id);
+                      const baseline = row?.displayLevel?.toString() ?? "";
+                      const draftLevel = draftLevels[course.id] ?? baseline;
+                      const dirty = draftLevel !== baseline;
+                      const numeric = draftLevel.trim() === "" ? null : Number(draftLevel);
+                      const statusLevel = numeric !== null && Number.isInteger(numeric) ? numeric : row?.displayLevel ?? null;
+                      const rowError = rowErrors[course.id];
+                      const noteId = `course-level-note-${course.id}`;
+                      const errorId = `course-level-error-${course.id}`;
+                      const canEditRow = canEditLevels && Boolean(row?.canEditLevel) && savingCourseId !== course.id;
+                      return (
+                        <tr key={course.id} className="block border-t border-wi-line-soft px-4 py-3 hover:bg-[var(--color-wi-row-alt)] md:table-row md:px-0 md:py-0">
+                          <td className="block py-1 md:table-cell md:px-4 md:py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-[var(--color-wi-text-light)] md:hidden">Level</span>
+                              <Input
+                                aria-label={`Level for ${course.code}`}
+                                type="number"
+                                min={1}
+                                max={MAX_LEVEL}
+                                step={1}
+                                value={draftLevel}
+                                onChange={(event) => {
+                                  setDraftLevels((previous) => ({ ...previous, [course.id]: event.target.value }));
+                                  clearRowError(course.id);
+                                }}
+                                disabled={!canEditRow}
+                                error={Boolean(rowError)}
+                                describedBy={rowError ? errorId : row?.readOnlyReason ? noteId : undefined}
+                                size="sm"
+                                className="w-24 md:w-20"
+                              />
+                            </div>
+                            {rowError ? <p id={errorId} role="alert" className="mt-1 max-w-xs text-xs font-medium text-[var(--color-wi-red-dark)]">{rowError}</p> : row?.readOnlyReason ? <p id={noteId} className="mt-1 max-w-xs text-xs text-[var(--color-wi-text-light)]">{row.readOnlyReason}</p> : null}
+                            {row && !row.cycleId ? (
+                              <p className="mt-1 text-xs">
+                                <Link to={`/courses/${row.setupCourseId}`} aria-label={`Open course setup for ${row.setupCourseId === course.id ? course.code : row.mergeGroup?.rule_source_course_code ?? course.code}`} className="font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">Open course setup</Link>
+                              </p>
+                            ) : null}
+                            {row?.mergeGroup ? (
+                              <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+                                <Link to={SIT_IN_RULES_HREF} className="font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">Manage link in Sit-in Rules</Link>
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="block py-1 md:table-cell md:px-4 md:py-3">
+                            <p className="font-mono text-xs font-semibold text-[var(--color-wi-text)]">{course.code}</p>
+                            <p className="mt-0.5 text-xs text-[var(--color-wi-text-light)]">{course.name}</p>
+                            {row?.mergeGroup ? (
+                              <span className="mt-1 inline-flex rounded-sm border border-wi-line bg-[var(--color-wi-selected)] px-1.5 py-0.5 text-[11px] text-[var(--color-wi-text)]">
+                                {row.mergeGroup.rule_source_course_code === course.code
+                                  ? "Rule source (linked)"
+                                  : row.mergeGroup.rule_source_course_code
+                                    ? `Follows ${row.mergeGroup.rule_source_course_code}`
+                                    : "Merged course"}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="block py-1 text-xs text-[var(--color-wi-text-light)] md:table-cell md:px-4 md:py-3">
+                            <span className="font-medium md:hidden">Cycle: </span>
+                            {row?.cycleLabel ?? "No cycle"}
+                          </td>
+                          <td className="block py-1 text-xs text-[var(--color-wi-text-light)] md:table-cell md:px-4 md:py-3">
+                            <span className="font-medium md:hidden">Subject: </span>
+                            {course.subject_name}
+                          </td>
+                          <td className="block py-1 md:table-cell md:px-4 md:py-3">
+                            <span className="mr-1 font-medium md:hidden">Status: </span>
+                            <StatusBadge level={statusLevel} />
+                          </td>
+                          <td className="block py-2 md:table-cell md:px-4 md:py-3 md:text-right">
+                            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={!dirty || !canEditRow}
+                                loading={savingCourseId === course.id}
+                                aria-label={`Save level for ${course.code}`}
+                                onClick={() => void saveLevel(course, draftLevel)}
+                              >
+                                Save
+                              </Button>
+                              <TypeaheadSelect
+                                aria-label={`Move ${course.code} to group`}
+                                value={course.root_course_group_id ?? ""}
+                                onChange={(value) => void moveCourse(course, value)}
+                                options={groupCourseOptions}
+                                placeholder="Group"
+                                disabled={savingCourseId === course.id || Boolean(row?.mergeGroup) || Boolean(mergeConfigError)}
+                                aria-invalid={Boolean(rowError)}
+                                aria-describedby={rowError ? errorId : undefined}
+                                className="w-36"
+                              />
+                            </div>
+                            {row?.mergeGroup ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Membership is fixed while linked.</p> : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {selectedCourses.length === 0 ? (
+                      <tr className="block md:table-row">
+                        <td colSpan={6} className="block px-4 py-12 text-center text-sm text-[var(--color-wi-text-light)] md:table-cell">No courses in this group yet.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="flex min-h-[28rem] items-center justify-center p-8 text-sm text-[var(--color-wi-text-light)]">Add a course group to start managing levels.</div>
+          )}
         </section>
       </div>
+
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete course group?"
+        message={deleteTarget ? `Delete “${deleteTarget.name}”? It has no courses. Any associated absence priorities for this group will also be deleted. This cannot be undone.` : ""}
+        confirmLabel="Delete group"
+        variant="danger"
+        loading={deletingGroup}
+        onConfirm={() => void deleteGroup()}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
-}
-
-function SummaryMetric({ label, value, tone }: { label: string; value: number; tone: "blue" | "green" | "amber" | "red" }) {
-  const toneClass = { blue: "bg-[var(--color-wi-primary)]", green: "bg-[var(--color-wi-green)]", amber: "bg-[var(--color-wi-amber)]", red: "bg-[var(--color-wi-red)]" }[tone];
-  return <div className="flex items-center gap-2 border-r border-wi-line px-2 last:border-r-0"><span className={`h-2 w-2 shrink-0 rounded-full ${toneClass}`} aria-hidden="true" /><div><p className="text-base font-semibold tabular-nums text-[var(--color-wi-text)]">{value}</p><p className="text-xs text-[var(--color-wi-text-light)]">{label}</p></div></div>;
 }

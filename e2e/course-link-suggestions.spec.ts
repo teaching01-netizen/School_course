@@ -253,8 +253,8 @@ test.describe("Course link suggestions", () => {
     await expect(page.getByText("Discovery is read only.")).toBeVisible();
     await expect(card.getByRole("button", { name: "Link as same course" })).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Not the same" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Manage levels" })).toBeVisible();
-    await expect(page.getByText("Course level management is available in the manager.")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Course level manager" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Course level manager" })).toBeVisible();
   });
 
   test("review toggle exposes review evidence and manual linking without one-click confirmation", async ({ page }) => {
@@ -477,6 +477,6 @@ test.describe("Course link suggestions", () => {
     await page.goto("/course-levels");
 
     await expect(page.getByText(/Suggestions are unavailable/)).toBeVisible();
-    await expect(page.getByText("Course level management is available in the manager.")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Course level manager" })).toBeVisible();
   });
 });

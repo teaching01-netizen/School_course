@@ -231,12 +231,12 @@ export default function CourseLinkSuggestionsPanel({ onLinked }: CourseLinkSugge
       } catch {
         setRefreshError("The link was saved, but related course views could not be refreshed.");
       }
+      await refreshAfterDecision();
       try {
         await onLinked?.();
       } catch {
         setRefreshError("The link was saved, but course levels could not be refreshed.");
       }
-      await refreshAfterDecision();
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === "suggestion_changed") {
         mutationKeys.current.delete(actionKey);
