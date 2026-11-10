@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Warwick Student PWA — Clickable IA</title>
+<style>
+:root{
+  --nav:#0F172A; --primary:#2563EB; --primary-dark:#1D4ED8;
+  --text:#0F172A; --muted:#64748B; --faint:#94A3B8;
+  --bg:#F8FAFC; --card:#fff; --line:rgba(15,23,42,.08); --radius:14px;
+}
+*{box-sizing:border-box} body{margin:0;background:#e8edf3;color:var(--text);
+  font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+.stage{min-height:100vh;display:flex;justify-content:center;padding:20px 12px 40px}
+.phone{width:390px;max-width:100%;min-height:844px;background:var(--bg);border-radius:28px;overflow:hidden;
+  border:1px solid var(--line);position:relative;display:flex;flex-direction:column;
+  box-shadow:0 24px 60px rgba(15,23,42,.18)}
+.hero{background:linear-gradient(180deg,#0F172A 0%,#1e3a8a 60%,#2563EB 100%);color:#fff;padding:14px 14px 0}
+.status{display:flex;justify-content:space-between;font-size:13px;opacity:.9;padding:2px 4px 10px}
+.searchrow{display:flex;gap:10px;align-items:center}
+.search{flex:1;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.22);
+  border-radius:999px;padding:11px 14px;color:#fff}
+.search input{background:transparent;border:0;outline:0;color:#fff;width:100%;font-size:15px}
+.search input::placeholder{color:rgba(255,255,255,.85)}
+.pill{background:rgba(255,255,255,.22);border-radius:999px;padding:9px 12px;font-weight:700;display:flex;gap:6px;align-items:center}
+.bell{background:rgba(255,255,255,.22);border-radius:999px;padding:9px 11px;position:relative}
+.bell b{position:absolute;top:-4px;right:-4px;background:#f43f5e;color:#fff;font-size:11px;min-width:18px;height:18px;
+  border-radius:999px;display:flex;align-items:center;justify-content:center}
+.quick{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;padding:16px 6px 12px}
+.quick button{background:none;border:0;color:#fff;font-size:12px;display:flex;flex-direction:column;gap:6px;align-items:center;cursor:pointer}
+.quick span.ic{font-size:24px}
+.nextcard{margin:0 14px;background:var(--card);border-radius:var(--radius);border:1px solid var(--line);
+  padding:14px;display:flex;justify-content:space-between;align-items:center;transform:translateY(14px)}
+.nextcard small{color:var(--muted)} .btn{background:var(--primary);color:#fff;border:0;border-radius:999px;
+  padding:10px 16px;font-weight:700;cursor:pointer} .btn:hover{background:var(--primary-dark)}
+.btn.ghost{background:#eef2ff;color:var(--primary)} .btn:disabled{background:#cbd5e1}
+.body{padding:28px 14px 110px;background:var(--bg)}
+.grid8{display:grid;grid-template-columns:repeat(4,1fr);gap:14px 8px;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--radius);padding:16px 8px;margin-top:12px}
+.grid8 button{border:0;background:none;cursor:pointer;font-size:11px;color:var(--text);position:relative}
+.badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#0ea5e9;color:#fff;
+  font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.ico{width:44px;height:44px;border-radius:14px;background:#eef2ff;display:flex;align-items:center;justify-content:center;
+  font-size:22px;margin:0 auto 6px}
+.hint{background:#fff7ed;border:1px solid #fed7aa;border-radius:var(--radius);padding:12px 14px;margin-top:12px}
+.checkcard{background:#fff7ed;border:1px solid #fed7aa;border-radius:var(--radius);padding:14px;margin-top:12px;
+  display:flex;justify-content:space-between;align-items:center;gap:10px}
+.screen{display:none} .screen.active{display:block}
+.tabs{display:flex;gap:8px;margin:10px 0} .tabs button{flex:1;padding:9px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer}
+.tabs button.on{background:var(--nav);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-top:10px}
+.muted{color:var(--muted);font-size:13px} h2{font-size:20px;margin:6px 0} h3{font-size:16px;margin:4px 0}
+.bottom{position:absolute;left:0;right:0;bottom:0;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
+  border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding:8px 4px calc(10px + env(safe-area-inset-bottom))}
+.bottom button{border:0;background:none;font-size:11px;color:var(--muted);cursor:pointer}
+.bottom button.on{color:var(--primary);font-weight:800}
+.center{width:56px;height:56px;border-radius:999px;background:var(--primary);color:#fff;font-size:24px;
+  margin:-28px auto 2px;border:4px solid var(--bg);cursor:pointer}
+.field{margin-top:10px} label{font-size:12px;font-weight:700;color:var(--muted)}
+input.txt{width:100%;margin-top:6px;padding:13px;border-radius:12px;border:1px solid var(--line);font-size:16px}
+.otp{display:flex;gap:8px;margin-top:8px} .otp input{width:44px;height:52px;text-align:center;font-size:20px;border-radius:12px;border:1px solid var(--line)}
+.sheet{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:10px}
+.topbar{padding:14px;font-weight:800;font-size:17px;background:#fff;border-bottom:1px solid var(--line)}
+.scroll{padding:14px 14px 110px}
+a.link{color:var(--primary);font-weight:700;cursor:pointer}
+.note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="stage"><div class="phone" id="app">
+
+<!-- AUTH: wcode + parent phone -->
+<section class="screen active" data-s="auth">
+  <div class="topbar">Warwick · Student Sign in</div>
+  <div class="scroll">
+    <h2>Welcome</h2>
+    <p class="muted">Enter your student code and parent phone to sign in. English-first.</p>
+    <div class="field"><label>STUDENT CODE (WCODE)</label><input class="txt" id="wcode" placeholder="e.g. W12345" autocomplete="off"></div>
+    <div class="field"><label>PARENT PHONE</label><input class="txt" id="phone" inputmode="tel" placeholder="e.g. 0812345678"></div>
+    <div class="card"><button class="btn" style="width:100%" onclick="signin()">Sign In</button>
+    <p class="note" id="authMsg">Direct sign-in with WCODE + parent phone. No OTP. Demo accepts any non-empty values.</p></div>
+  </div>
+</section>
+
+<!-- HOME -->
+<section class="screen" data-s="home">
+  <div class="hero">
+    <div class="status"><span>09:41</span><span>Warwick PWA · 5G</span></div>
+    <div class="searchrow">
+      <div class="search">⌕ <input placeholder="Search courses, items, events" oninput="filterGrid(this.value)"></div>
+      <div class="pill">◉ <span id="pts">279</span></div>
+      <div class="bell" onclick="go('banners')">🔔<b>2</b></div>
+    </div>
+    <div class="quick">
+      <button onclick="go('courses')"> <span class="ic">📅</span>My Schedule</button>
+      <button onclick="go('scores')"> <span class="ic">🏆</span>My Scores</button>
+      <button onclick="openCheckin()"> <span class="ic">✅</span>Check-in</button>
+      <button onclick="go('leave')"> <span class="ic">📝</span>Leave</button>
+    </div>
+    <div class="nextcard"><div><small>NEXT CLASS · TODAY 13:00</small><h3>SAT Reading · Rank 4 · R201</h3></div>
+      <button class="btn" onclick="go('courses')">View today</button></div>
+  </div>
+  <div class="body">
+    <div class="grid8" id="grid8"></div>
+    <div class="hint">🎓 <b>New SAT cycle open.</b> Tap <a class="link" onclick="go('tests')">Test Register</a> to reserve a seat. <a class="link" onclick="go('banners')">View events ›</a></div>
+    <div class="card"><small class="muted">SCORE</small><h2>IELTS Mock · 6.5</h2>
+      <p class="muted">Last updated Nov 2 · <a class="link" onclick="go('scores')">View all scores ›</a></p></div>
+    <div class="checkcard"><div>🎁<div><b>Daily Check-in</b><br><small class="muted" id="streak">Streak 3 days · +5 pts today</small></div></div>
+      <button class="btn" id="dailyBtn" onclick="daily()">Check-in</button></div>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn ghost" style="flex:1" onclick="go('rewards')">Item Rewards</button>
+      <button class="btn" style="flex:1" onclick="go('courses')">Courses</button></div>
+  </div>
+</section>
+
+<!-- COURSES -->
+<section class="screen" data-s="courses">
+  <div class="topbar">My Courses</div><div class="scroll">
+  <div class="tabs"><button class="on">Today</button><button>Week</button><button>Month</button></div>
+  <div class="card"><small class="muted">13:00–15:00 · R201 · Mr. Lee</small><h3>SAT Reading · Rank 4</h3>
+    <button class="btn" onclick="openCheckin()">Check-in</button>
+    <p><a class="link" onclick="go('leave')">Request leave ›</a> · <a class="link" onclick="go('scores')">Score ›</a></p></div>
+  <div class="card"><small class="muted">15:30–17:30 · R105 · Ms. Ann</small><h3>IELTS Writing · Intermediate</h3>
+    <button class="btn ghost" onclick="go('home')">Details</button></div>
+  </div>
+</section>
+
+<!-- REWARDS -->
+<section class="screen" data-s="rewards">
+  <div class="topbar">Rewards · <span id="pts2">279</span> pts</div><div class="scroll">
+  <div class="card">🧸 <b>Warwick Bear</b> · 200 pts · In stock <p><a class="link" onclick="go('item')">View + Condition ›</a></p></div>
+  <div class="card">🎧 <b>Study Headphones</b> · 500 pts · Low stock <p><a class="link" onclick="go('item')">View + Condition ›</a></p></div>
+  </div>
+</section>
+
+<section class="screen" data-s="item">
+  <div class="topbar"><a class="link" onclick="go('rewards')">‹ Rewards</a></div><div class="scroll">
+  <div class="card"><h2>Warwick Bear · 200 pts</h2><p class="muted">Stock: 12 · Active</p>
+  <p><b>Condition:</b> 1 per student per term. Redeem at front desk with code.</p>
+  <button class="btn" style="width:100%" onclick="redeem()">Redeem</button><p class="note" id="redeemMsg"></p></div>
+  </div>
+</section>
+
+<!-- SCORES -->
+<section class="screen" data-s="scores">
+  <div class="topbar">Scores</div><div class="scroll">
+  <div class="tabs"><button class="on">SAT</button><button>IELTS</button></div>
+  <div class="card"><b>SAT Reading Mock · Oct 28</b><h2>680</h2><p class="muted">Note: +30 from last mock.</p></div>
+  <div class="card"><b>SAT Writing Mock · Oct 20</b><h2>640</h2></div>
+  </div>
+</section>
+
+<!-- TESTS -->
+<section class="screen" data-s="tests">
+  <div class="topbar">Test Register</div><div class="scroll">
+  <div class="card"><b>IELTS Mock · Sat 10:00</b><p class="muted">Seats left: 4</p><button class="btn" onclick="this.textContent='Registered ✓';this.disabled=true">Register</button></div>
+  <div class="card"><b>SAT Mock · Sun 13:00</b><p class="muted">Full — Register disabled</p><button class="btn" disabled>Full</button></div>
+  <div class="card"><b>My Registrations</b><p class="muted">Cancel blocked within 48h (SAT policy).</p><button class="btn ghost">Cancel</button></div>
+  </div>
+</section>
+
+<!-- LEAVE -->
+<section class="screen" data-s="leave">
+  <div class="topbar">Leave Request</div><div class="scroll">
+  <div class="card"><b>Step 1/4 · Classes</b><p class="muted">Same logic as existing <code>/absence</code>: Student → Classes → Reason → Review.</p>
+  <button class="btn" style="width:100%" onclick="go('home')">Continue (demo)</button></div>
+  </div>
+</section>
+
+<!-- BANNERS -->
+<section class="screen" data-s="banners">
+  <div class="topbar"><a class="link" onclick="go('home')">‹ Home</a> · Events</div><div class="scroll">
+  <div class="card">🎪 <b>SAT Open House</b><p class="muted">Nov 9–16 · Tap to open link.</p></div>
+  <div class="card">⭐ <b>Double points weekend</b><p class="muted">Fallback static tip when table empty.</p></div>
+  </div>
+</section>
+
+<section class="screen" data-s="profile">
+  <div class="topbar">Profile</div><div class="scroll"><div class="card"><b>WCODE</b><p class="muted">From auth screen. Parent phone on file.</p>
+  <button class="btn ghost" onclick="go('auth')">Sign out</button></div></div>
+</section>
+
+<div class="bottom" id="nav" style="display:none">
+  <button data-n="home" class="on" onclick="go('home')">🏠<br>Home</button>
+  <button data-n="courses" onclick="go('courses')">📚<br>Courses</button>
+  <button onclick="openCheckin()"><span class="center">⇄</span><br>Scan</button>
+  <button data-n="scores" onclick="go('scores')">🧾<br>Scores</button>
+  <button data-n="profile" onclick="go('profile')">👤<br>More</button>
+</div>
+
+<div class="sheet" id="checkSheet" style="display:none;position:absolute;left:12px;right:12px;bottom:96px">
+  <b>Check-in · SAT Reading 13:00 R201</b><p class="muted">One points-granting check-in per day (Bangkok). Late recorded, not rejected.</p>
+  <button class="btn" style="width:100%" onclick="confirmCheckin()">Confirm check-in</button>
+  <button class="btn ghost" style="width:100%;margin-top:8px" onclick="document.getElementById('checkSheet').style.display='none'">Close</button>
+</div>
+
+</div></div>
+<script>
+const services=[
+ ["📅","Courses","courses"],["🎁","Rewards","","New"],["🧸","Items","rewards"],
+ ["📝","Tests","tests"],["🏖","Leave","leave"],["🗓","Timetable","courses"],
+ ["🎪","Events","banners","New"],["▦","View All","",""]];
+function renderGrid(f=""){
+ const g=document.getElementById('grid8');g.innerHTML="";
+ services.filter(s=>s[1].toLowerCase().includes(f.toLowerCase())).forEach(s=>{
+  const b=document.createElement('button');
+  b.innerHTML=(s[3]?`<span class="badge">${s[3]}</span>`:"")+`<span class="ico">${s[0]}</span>${s[1]}`;
+  b.onclick=()=>s[2]?go(s[2]):alert("View All sheet (demo)");
+  g.appendChild(b);
+ });
+}
+function filterGrid(v){renderGrid(v)}
+function go(n){
+ const target=document.querySelector(`.screen[data-s="${n}"]`);
+ if(!target){alert("Missing screen: "+n);return;}
+ document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s===target));
+ document.getElementById('nav').style.display=(n==='auth')?'none':'grid';
+ document.querySelectorAll('#nav button[data-n]').forEach(b=>b.classList.toggle('on',b.dataset.n===n));
+ document.getElementById('app').scrollTop=0;window.scrollTo(0,0);
+}
+function signin(){
+ const w=(document.getElementById('wcode').value||"").trim();
+ const p=(document.getElementById('phone').value||"").trim();
+ const m=document.getElementById('authMsg');
+ if(!w||!p){m.textContent="Enter both Student Code and Parent Phone to continue (demo accepts anything non-empty).";m.style.color="#DC2626";return;}
+ m.style.color="";m.textContent="Signed in as "+w+" (demo).";
+ go('home');
+}
+function openCheckin(){go('home');document.getElementById('checkSheet').style.display='block'}
+function confirmCheckin(){document.getElementById('checkSheet').style.display='none';daily(true)}
+let pts=279;
+function daily(fromSheet){
+ const b=document.getElementById('dailyBtn');
+ if(b.disabled)return; b.disabled=true;b.textContent="Checked-in ✓";
+ pts+=5;document.getElementById('pts').textContent=pts;document.getElementById('pts2').textContent=pts;
+ document.getElementById('streak').textContent="Checked-in today · Streak 4 days · +5 pts";
+}
+function redeem(){
+ const m=document.getElementById('redeemMsg');
+ if(pts<200){m.textContent="409 insufficient points (demo rule).";return;}
+ pts-=200;document.getElementById('pts').textContent=pts;document.getElementById('pts2').textContent=pts;
+ m.textContent="Success ✓ Code WB-4821 · New balance "+pts+" · Ledger: spend 200 (atomic, idempotent).";
+}
+renderGrid();
+</script>
+</body></html>

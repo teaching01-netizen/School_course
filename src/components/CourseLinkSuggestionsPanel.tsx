@@ -98,7 +98,12 @@ function manualLinkHref(item: CourseLinkSuggestion): string {
   return `/courses/create?${params.toString()}`;
 }
 
-export default function CourseLinkSuggestionsPanel() {
+type CourseLinkSuggestionsPanelProps = {
+  /** Called after a link is saved so the surrounding workspace can refresh course metadata. */
+  onLinked?: () => void | Promise<void>;
+};
+
+export default function CourseLinkSuggestionsPanel({ onLinked }: CourseLinkSuggestionsPanelProps = {}) {
   const { addToast } = useToast();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const requestRef = useRef(0);
@@ -225,6 +230,11 @@ export default function CourseLinkSuggestionsPanel() {
         await queryClient.invalidateQueries({ queryKey: ["api", "/api/v1/course-groups"] });
       } catch {
         setRefreshError("The link was saved, but related course views could not be refreshed.");
+      }
+      try {
+        await onLinked?.();
+      } catch {
+        setRefreshError("The link was saved, but course levels could not be refreshed.");
       }
       await refreshAfterDecision();
     } catch (error) {
