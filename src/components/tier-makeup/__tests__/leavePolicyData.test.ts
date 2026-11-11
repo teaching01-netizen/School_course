@@ -96,6 +96,86 @@ describe("SAT Verbal hardcoded leave policy", () => {
     expect(result.options).toEqual([]);
   });
 
+  it("keeps exactly one canonical Rank 4 row per subject", () => {
+    const rank4Rows = LEAVE_POLICY_COURSE_RULES.filter((rule) => /Rank 4/.test(rule.courseName));
+    expect(rank4Rows.map((rule) => rule.id).sort()).toEqual([
+      "sat-verbal-reading-rank4",
+      "sat-verbal-writing-rank4",
+    ]);
+    expect(rank4Rows.map((rule) => rule.courseName).sort()).toEqual([
+      "SAT Verbal Reading Rank 4",
+      "SAT Verbal Writing Rank 4",
+    ]);
+    expect(LEAVE_POLICY_COURSE_RULES.some((rule) => rule.id === "sat-reading-rank4")).toBe(false);
+    expect(LEAVE_POLICY_COURSE_RULES.some((rule) => rule.id === "sat-writing-rank4")).toBe(false);
+  });
+
+  it("preserves canonical Rank 4 rank-chain options and last-class exclusion", () => {
+    for (const id of ["sat-verbal-reading-rank4", "sat-verbal-writing-rank4"]) {
+      const rule = ruleById(id);
+      expect(rule.ruleType).toBe("rank_chain");
+      expect(rule.priorityCount).toBe(2);
+      expect(rule.priorities).toHaveLength(2);
+      expect(rule.lastClassExcluded).toBe(true);
+    }
+    expect(optionLabels("sat-verbal-reading-rank4", "SAT Verbal Reading Rank 4", 1, "Section 1")).toEqual([
+      "SAT Verbal Reading Rank 5",
+    ]);
+    expect(optionLabels("sat-verbal-writing-rank4", "SAT Verbal Writing Rank 4", 2, "Section 1")).toEqual([
+      "SAT Verbal Writing Rank 5",
+      "SAT Verbal Rank 3 Section 1",
+      "SAT Verbal Rank 3 Section 2",
+    ]);
+    for (const id of ["sat-verbal-reading-rank4", "sat-verbal-writing-rank4"]) {
+      const blocked = evaluateLeavePolicy({
+        courseRuleId: id,
+        missedCourseName: ruleById(id).courseName,
+        missedSection: "Section 1",
+        missedOccurrence: 2,
+        totalSessions: 8,
+        isLastClass: true,
+      });
+      expect(blocked.isBlocked).toBe(true);
+      expect(blocked.options).toEqual([]);
+    }
+  });
+
+  it("preserves existing beginner dual-alias Rank 4 and Rank 5 targets", () => {
+    for (const id of [
+      "sat-verbal-reading-beginner-sec1",
+      "sat-verbal-reading-beginner-sec2",
+      "sat-verbal-reading-beginner-sec3",
+    ]) {
+      const rule = ruleById(id);
+      expect(rule.eligibleTargets).toContain("SAT Verbal Reading Rank 4");
+      expect(rule.eligibleTargets).toContain("SAT Reading Rank 4");
+      expect(rule.eligibleTargets).toContain("SAT Verbal Reading Rank 5");
+      expect(rule.eligibleTargets).toContain("SAT Reading Rank 5");
+    }
+    for (const id of [
+      "sat-verbal-writing-beginner-sec1",
+      "sat-verbal-writing-beginner-sec2",
+      "sat-verbal-writing-beginner-sec3",
+    ]) {
+      const rule = ruleById(id);
+      expect(rule.eligibleTargets).toContain("SAT Verbal Writing Rank 4");
+      expect(rule.eligibleTargets).toContain("SAT Writing Rank 4");
+      expect(rule.eligibleTargets).toContain("SAT Verbal Writing Rank 5");
+      expect(rule.eligibleTargets).toContain("SAT Writing Rank 5");
+    }
+  });
+
+  it("leaves all Rank 5 definitions unchanged", () => {
+    expect(ruleById("sat-verbal-reading-rank5").priorityCount).toBe(2);
+    expect(ruleById("sat-verbal-writing-rank5").priorityCount).toBe(2);
+    expect(ruleById("sat-reading-rank5").priorityCount).toBe(2);
+    expect(ruleById("sat-writing-rank5").priorityCount).toBe(2);
+    expect(ruleById("sat-verbal-reading-rank5").eligibleTargets).toContain("SAT Verbal Reading Rank 4");
+    expect(ruleById("sat-verbal-writing-rank5").eligibleTargets).toContain("SAT Verbal Writing Rank 4");
+    expect(ruleById("sat-reading-rank5").eligibleTargets).toContain("SAT Reading Rank 4");
+    expect(ruleById("sat-writing-rank5").eligibleTargets).toContain("SAT Writing Rank 4");
+  });
+
   it("uses correct ordinal suffixes for legacy cross-section priority labels", () => {
     const result = evaluateLeavePolicy({
       courseRuleId: "legacy-cross-section",

@@ -35,6 +35,44 @@ type SatVerbalPolicyMapping = {
   unmatched_policy_rows?: string[];
 };
 
+// Legacy saved selections predate the Rank 4 deduplication and may still be
+// stored under the removed aliases. There is exactly one canonical Rank 4 row
+// per subject now; a legacy selection survives only as a fallback when the
+// canonical row has no nonempty selection. When both canonical and legacy
+// carry different nonempty selections, the canonical selection wins (no
+// attempt is made to preserve both distinct targets, and no migration
+// rewrites stored rows — the canonical row simply saves over them on Save).
+const LEGACY_RANK4_RULE_FALLBACK: Record<string, string> = {
+  "sat-reading-rank4": "sat-verbal-reading-rank4",
+  "sat-writing-rank4": "sat-verbal-writing-rank4",
+};
+
+function encodeMappingTarget(item: SatVerbalRuleMapping): string {
+  return item.merge_group_id ? `merge:${item.merge_group_id}` : item.course_id ?? "";
+}
+
+function toVisibleSelections(
+  mappings: SatVerbalRuleMapping[] | undefined,
+  visibleRuleIds: ReadonlySet<string>,
+): Record<string, string> {
+  const byRule: Record<string, string> = {};
+  for (const item of mappings ?? []) {
+    if (!visibleRuleIds.has(item.rule_id)) continue;
+    byRule[item.rule_id] = encodeMappingTarget(item);
+  }
+  for (const [legacyId, canonicalId] of Object.entries(LEGACY_RANK4_RULE_FALLBACK)) {
+    if (!visibleRuleIds.has(canonicalId)) continue;
+    if ((byRule[canonicalId] ?? "").trim() !== "") continue;
+    const candidates = (mappings ?? [])
+      .filter((item) => item.rule_id === legacyId)
+      .map(encodeMappingTarget)
+      .filter((value) => value.trim() !== "");
+    const fallback = candidates.length > 0 ? candidates[candidates.length - 1] : undefined;
+    if (fallback) byRule[canonicalId] = fallback;
+  }
+  return byRule;
+}
+
 function courseLabel(course: Course) {
   const subject = course.subject_name || course.subject_code;
   const name = course.name.trim();
@@ -64,11 +102,9 @@ export default function LeavePolicyRules() {
         setCourses(courseData ?? []);
         setMergeGroups(mergeGroupData ?? []);
         setMapping(mappingData);
-        const byRule: Record<string, string> = {};
-        for (const item of mappingData.mappings ?? []) {
-          byRule[item.rule_id] = item.merge_group_id ? `merge:${item.merge_group_id}` : item.course_id ?? "";
-        }
-        setSelectedCourseIds(byRule);
+        setSelectedCourseIds(
+          toVisibleSelections(mappingData.mappings, new Set(LEAVE_POLICY_COURSE_RULES.map((rule) => rule.id))),
+        );
       } catch (err) {
         if (!cancelled) addToast("error", err instanceof Error ? err.message : "Failed to load SAT Verbal mappings");
       } finally {
@@ -106,11 +142,9 @@ export default function LeavePolicyRules() {
         }),
       });
       setMapping(updated);
-      const byRule: Record<string, string> = {};
-      for (const item of updated.mappings ?? []) {
-        byRule[item.rule_id] = item.merge_group_id ? `merge:${item.merge_group_id}` : item.course_id ?? "";
-      }
-      setSelectedCourseIds(byRule);
+      setSelectedCourseIds(
+        toVisibleSelections(updated.mappings, new Set(LEAVE_POLICY_COURSE_RULES.map((rule) => rule.id))),
+      );
       const warningCount = updated.warnings?.length ?? 0;
       if (warningCount > 0) {
         addToast("warning", `SAT Verbal course rules saved with ${warningCount} warning${warningCount === 1 ? "" : "s"}`);
@@ -127,7 +161,7 @@ export default function LeavePolicyRules() {
   const totalRules = LEAVE_POLICY_COURSE_RULES.length;
   const warnings = mapping?.warnings ?? [];
   const unmatchedPolicyRows = mapping?.unmatched_policy_rows ?? [];
-  const matchedCount = mapping?.mappings?.length ?? selectedCount;
+  const matchedCount = selectedCount;
 
   if (loading) {
     return <LoadingSkeleton type="table" lines={10} />;
