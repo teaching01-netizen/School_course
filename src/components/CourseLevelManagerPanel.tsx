@@ -28,6 +28,7 @@ type CourseLevelManagerPanelProps = {
   mergeConfigRetrying?: boolean;
   onRetryMergeConfig?: () => void;
   onCoursesChange: (update: (courses: CourseLevelItem[]) => CourseLevelItem[]) => void;
+  onMergeGroupsChange: (update: (mergeGroups: CourseMergeGroupConfig[]) => CourseMergeGroupConfig[]) => void;
   onGroupsChange: (update: (groups: RootCourseGroupInfo[]) => RootCourseGroupInfo[]) => void;
 };
 
@@ -70,6 +71,10 @@ type LevelConflict = {
   subjectName: string;
   cycleLabel: string;
 };
+
+function levelDraftKey(course: CourseLevelItem, row: EffectiveCourse | undefined): string {
+  return row?.mergeGroup?.rule_source_course_code ? row.canonicalKey : course.id;
+}
 
 function levelStatus(level: number | null): { label: string; className: string } {
   if (level === null) return { label: "Not set", className: "border-wi-line bg-[var(--color-wi-row-alt)] text-[var(--color-wi-text)]" };
@@ -140,6 +145,7 @@ export default function CourseLevelManagerPanel({
   mergeConfigRetrying = false,
   onRetryMergeConfig,
   onCoursesChange,
+  onMergeGroupsChange,
   onGroupsChange,
 }: CourseLevelManagerPanelProps) {
   const { addToast } = useToast();
@@ -208,7 +214,6 @@ export default function CourseLevelManagerPanel({
       const sourceCourse = mergeGroup.rule_source_course_code ? courseByCode.get(mergeGroup.rule_source_course_code) ?? null : null;
       const canonical = sourceCourse ?? courseByCode.get(mergeGroup.course_codes[0] ?? "") ?? course;
       const groupCourse = isContinuation ? sourceCourse : course;
-      const isSource = Boolean(mergeGroup.rule_source_course_code && mergeGroup.rule_source_course_code === course.code);
       // The course list returns each member's raw level/cycle, while the merge
       // config returns one resolved effective value. For a continuation link the
       // config cycle is read from the source course (backend/internal/db/
@@ -216,21 +221,16 @@ export default function CourseLevelManagerPanel({
       // the source has no cycle. Falling back to the member's cycle would invent one.
       const cycleId = mergeGroup.cycle_id ?? null;
       const cycleLabel = mergeGroup.cycle_label || "No cycle";
-      // The API resolves level/cycle to one value without exposing whether the
-      // merge group overrides the source or inherits it, so every linked member
-      // (including the source course) is read-only here.
-      const readOnlyReason = !isContinuation
-        ? "Level and cycle are managed by the merged course configuration in Sit-in Rules."
-        : isSource
-          ? "The link may override this source course's level. Effective level and cycle are managed in Sit-in Rules."
-          : `Level and cycle follow ${mergeGroup.rule_source_course_code} through the link in Sit-in Rules.`;
+      const readOnlyReason = isContinuation
+        ? null
+        : "Level and cycle are managed by the merged course configuration in Sit-in Rules.";
       rows.set(course.id, {
         groupCourse,
         mergeGroup,
         displayLevel: mergeGroup.level,
         cycleId,
         cycleLabel,
-        canEditLevel: false,
+        canEditLevel: isContinuation,
         readOnlyReason,
         canonicalKey: `merge:${mergeGroup.id}`,
         setupCourseId: canonical.id,
@@ -317,20 +317,22 @@ export default function CourseLevelManagerPanel({
     const previousPersisted = persistedRef.current;
     const nextPersisted = new Map<string, string>();
     for (const course of courses) {
-      nextPersisted.set(course.id, effective.rows.get(course.id)?.displayLevel?.toString() ?? "");
+      const row = effective.rows.get(course.id);
+      nextPersisted.set(levelDraftKey(course, row), row?.displayLevel?.toString() ?? "");
     }
     persistedRef.current = nextPersisted;
     setDraftLevels((previous) => {
       const next: Record<string, string> = {};
       for (const course of courses) {
         const row = effective.rows.get(course.id);
-        const baseline = nextPersisted.get(course.id) ?? "";
-        const previousBaseline = previousPersisted.get(course.id);
-        const draft = previous[course.id];
+        const key = levelDraftKey(course, row);
+        const baseline = nextPersisted.get(key) ?? "";
+        const previousBaseline = previousPersisted.get(key);
+        const draft = previous[key];
         // A draft that predates the first baseline (for example, typed before the
         // initial effect flushed) is still a user edit and must not be clobbered.
         const dirty = draft !== undefined && (previousBaseline === undefined || draft !== previousBaseline);
-        next[course.id] = row?.canEditLevel && dirty ? draft : baseline;
+        next[key] = row?.canEditLevel && dirty ? draft : baseline;
       }
       return next;
     });
@@ -375,10 +377,12 @@ export default function CourseLevelManagerPanel({
     };
   }, [courses, effective]);
 
-  const dirtyCount = (courseList: CourseLevelItem[]) => courseList.filter((course) => {
-    const baseline = effective.rows.get(course.id)?.displayLevel?.toString() ?? "";
-    return (draftLevels[course.id] ?? baseline) !== baseline;
-  }).length;
+  const dirtyCount = (courseList: CourseLevelItem[]) => new Set(courseList.filter((course) => {
+    const row = effective.rows.get(course.id);
+    const key = levelDraftKey(course, row);
+    const baseline = row?.displayLevel?.toString() ?? "";
+    return (draftLevels[key] ?? baseline) !== baseline;
+  }).map((course) => levelDraftKey(course, effective.rows.get(course.id)))).size;
   const selectedDirtyCount = dirtyCount(selectedCourses);
 
   function clearRowError(courseId: string) {
@@ -404,11 +408,22 @@ export default function CourseLevelManagerPanel({
 
   // The database unique index is courses(subject_id, cycle_id, level) across the
   // whole courses table (migration 00017), so duplicate preflight must ignore root
-  // course groups. Linked members are read-only, so raw course rows are authoritative
-  // for what this endpoint can write.
-  function conflictFor(course: CourseLevelItem, level: number): LevelConflict | null {
-    const cycleId = course.cycle_id || null;
+  // course groups. Continuation levels use the link's effective rows and skip its
+  // own merged entry when checking for duplicates.
+  function conflictFor(course: CourseLevelItem, level: number, continuation: CourseMergeGroupConfig | null = null): LevelConflict | null {
+    const row = effective.rows.get(course.id);
+    const cycleId = continuation ? row?.cycleId ?? null : course.cycle_id || null;
     if (!cycleId) return null;
+    if (continuation) {
+      const conflict = effective.entries.find((entry) =>
+        entry.mergeGroupId !== continuation.id
+        && entry.subjectId === course.subject_id
+        && entry.cycleId === cycleId
+        && entry.level === level
+      );
+      if (!conflict) return null;
+      return { code: conflict.code, subjectName: conflict.subjectName, cycleLabel: conflict.cycleLabel };
+    }
     const conflict = courses.find((item) =>
       item.id !== course.id
       && item.subject_id === course.subject_id
@@ -436,6 +451,7 @@ export default function CourseLevelManagerPanel({
   async function saveLevel(course: CourseLevelItem, rawLevel: string): Promise<boolean> {
     const row = effective.rows.get(course.id);
     if (!row) return false;
+    const continuation = row.mergeGroup?.rule_source_course_code ? row.mergeGroup : null;
     if (mergeConfigError) {
       setRowError(course.id, "Linked course settings are unavailable. Retry before editing levels.");
       return false;
@@ -444,11 +460,12 @@ export default function CourseLevelManagerPanel({
       setRowError(course.id, row.readOnlyReason ?? "This course's level is managed elsewhere.");
       return false;
     }
-    if (!row.cycleId) {
+    if (!continuation && !row.cycleId) {
       setRowError(course.id, "Add a cycle to this course before setting its level.");
       return false;
     }
-    const courseGroup = course.root_course_group_id ? groups.find((group) => group.id === course.root_course_group_id) : null;
+    const groupCourse = row.groupCourse ?? course;
+    const courseGroup = groupCourse.root_course_group_id ? groups.find((group) => group.id === groupCourse.root_course_group_id) : null;
     if (!courseGroup) {
       setRowError(course.id, "Move this course into a course group with a sit-in rule before setting a level.");
       return false;
@@ -472,7 +489,7 @@ export default function CourseLevelManagerPanel({
       setRowError(course.id, `Level must be a whole number between 1 and ${MAX_LEVEL}.`);
       return false;
     }
-    const conflict = conflictFor(course, level);
+    const conflict = conflictFor(course, level, continuation);
     if (conflict) {
       setRowError(course.id, `Level ${level} is already used by ${conflict.code} in ${conflict.subjectName} (${conflict.cycleLabel}). Choose a different level.`);
       return false;
@@ -486,14 +503,23 @@ export default function CourseLevelManagerPanel({
       return next;
     });
     try {
-      await apiJson(`/api/v1/admin/courses/${course.id}/level`, {
-        method: "PUT",
-        body: JSON.stringify({ level, cycle_id: course.cycle_id }),
-      });
-      onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, level } : item));
-      persistedRef.current.set(course.id, level.toString());
-      setDraftLevels((previous) => ({ ...previous, [course.id]: level.toString() }));
-      addToast("success", `${course.code} level saved`);
+      if (continuation) {
+        await apiJson(`/api/v1/admin/course-merge-groups/${continuation.id}/level`, {
+          method: "PUT",
+          body: JSON.stringify({ level }),
+        });
+        onMergeGroupsChange((previous) => previous.map((group) => group.id === continuation.id ? { ...group, level } : group));
+      } else {
+        await apiJson(`/api/v1/admin/courses/${course.id}/level`, {
+          method: "PUT",
+          body: JSON.stringify({ level, cycle_id: course.cycle_id }),
+        });
+        onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, level } : item));
+      }
+      const draftKey = levelDraftKey(course, row);
+      persistedRef.current.set(draftKey, level.toString());
+      setDraftLevels((previous) => ({ ...previous, [draftKey]: level.toString() }));
+      addToast("success", continuation ? `${continuation.name} level saved for both linked courses` : `${course.code} level saved`);
       return true;
     } catch (error) {
       setRowError(course.id, error instanceof Error ? error.message : "Failed to save level");
@@ -705,6 +731,7 @@ export default function CourseLevelManagerPanel({
     : [];
   const selectedMissingCycleEntry = selectedEntries.find((entry) => entry.missingCycle) ?? null;
   const selectedLinkedCount = selectedCourses.filter((course) => effective.rows.get(course.id)?.mergeGroup).length;
+  const selectedHasContinuation = selectedCourses.some((course) => Boolean(effective.rows.get(course.id)?.mergeGroup?.rule_source_course_code));
   const addError = rowErrors.__add__ ?? (newLevelCourseId ? rowErrors[newLevelCourseId] : undefined) ?? null;
 
   return (
@@ -944,7 +971,9 @@ export default function CourseLevelManagerPanel({
                   <div className="mt-3 rounded-sm border border-wi-line bg-[var(--color-wi-callout)] px-3 py-3 text-xs">
                     <p className="font-semibold text-[var(--color-wi-text)]">{selectedLinkedCount} linked {selectedLinkedCount === 1 ? "course" : "courses"} in this group</p>
                     <p className="mt-1 text-[var(--color-wi-text)]">
-                      Linked rows show the effective level reported by Sit-in Rules. That value can be inherited from the source course or overridden by the link, and this screen cannot tell which, so the rows are read-only.
+                      {selectedHasContinuation
+                        ? "Continuation links share one level. Edit either linked row to update both course IDs; saving overrides the source course's level for this link."
+                        : "Merged course levels and cycles are managed by the linked course configuration in Sit-in Rules."}
                     </p>
                     <Link to={SIT_IN_RULES_HREF} className="mt-1 inline-flex min-h-[28px] items-center gap-1 font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">
                       Review links in Sit-in Rules
@@ -1034,15 +1063,24 @@ export default function CourseLevelManagerPanel({
                   <tbody className="block md:table-row-group">
                     {selectedCourses.map((course) => {
                       const row = effective.rows.get(course.id);
+                      const draftKey = levelDraftKey(course, row);
                       const baseline = row?.displayLevel?.toString() ?? "";
-                      const draftLevel = draftLevels[course.id] ?? baseline;
+                      const draftLevel = draftLevels[draftKey] ?? baseline;
                       const dirty = draftLevel !== baseline;
                       const numeric = draftLevel.trim() === "" ? null : Number(draftLevel);
                       const statusLevel = numeric !== null && Number.isInteger(numeric) ? numeric : row?.displayLevel ?? null;
                       const rowError = rowErrors[course.id];
                       const noteId = `course-level-note-${course.id}`;
                       const errorId = `course-level-error-${course.id}`;
-                      const canEditRow = canEditLevels && Boolean(row?.canEditLevel) && savingCourseId !== course.id;
+                      const linkedRowIsSaving = Boolean(
+                        row?.mergeGroup?.rule_source_course_code
+                        && row.mergeGroup.course_codes.some((code) => courses.some((item) => item.code === code && item.id === savingCourseId)),
+                      );
+                      const canEditRow = canEditLevels && Boolean(row?.canEditLevel) && savingCourseId !== course.id && !linkedRowIsSaving;
+                      const continuationNote = row?.mergeGroup?.rule_source_course_code
+                        ? "Shared level for both linked course IDs. Saving overrides the source course's level for this link."
+                        : null;
+                      const levelNote = continuationNote ?? row?.readOnlyReason;
                       return (
                         <tr key={course.id} className="block border-t border-wi-line-soft px-4 py-3 hover:bg-[var(--color-wi-row-alt)] md:table-row md:px-0 md:py-0">
                           <td className="block py-1 md:table-cell md:px-4 md:py-3">
@@ -1056,17 +1094,17 @@ export default function CourseLevelManagerPanel({
                                 step={1}
                                 value={draftLevel}
                                 onChange={(event) => {
-                                  setDraftLevels((previous) => ({ ...previous, [course.id]: event.target.value }));
+                                  setDraftLevels((previous) => ({ ...previous, [draftKey]: event.target.value }));
                                   clearRowError(course.id);
                                 }}
                                 disabled={!canEditRow}
                                 error={Boolean(rowError)}
-                                describedBy={rowError ? errorId : row?.readOnlyReason ? noteId : undefined}
+                                describedBy={rowError ? errorId : levelNote ? noteId : undefined}
                                 size="sm"
                                 className="w-24 md:w-20"
                               />
                             </div>
-                            {rowError ? <p id={errorId} role="alert" className="mt-1 max-w-xs text-xs font-medium text-[var(--color-wi-red-dark)]">{rowError}</p> : row?.readOnlyReason ? <p id={noteId} className="mt-1 max-w-xs text-xs text-[var(--color-wi-text-light)]">{row.readOnlyReason}</p> : null}
+                            {rowError ? <p id={errorId} role="alert" className="mt-1 max-w-xs text-xs font-medium text-[var(--color-wi-red-dark)]">{rowError}</p> : levelNote ? <p id={noteId} className="mt-1 max-w-xs text-xs text-[var(--color-wi-text-light)]">{levelNote}</p> : null}
                             {row && !row.cycleId ? (
                               <p className="mt-1 text-xs">
                                 <Link to={`/courses/${row.setupCourseId}`} aria-label={`Open course setup for ${row.setupCourseId === course.id ? course.code : row.mergeGroup?.rule_source_course_code ?? course.code}`} className="font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">Open course setup</Link>

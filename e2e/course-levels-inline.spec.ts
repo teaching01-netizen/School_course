@@ -19,6 +19,7 @@ async function installCourseLevelRoutes(page: Page, fixture: {
 } = {}) {
   const courses = (fixture.courses ?? COURSES).map((course) => ({ ...course }));
   const groups: RootCourseGroupInfo[] = (fixture.groups ?? GROUPS).map((group) => ({ ...group }));
+  const mergeGroups = (fixture.mergeGroups ?? []).map((group) => ({ ...group }));
   const assignmentState = { failNext: false };
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -80,7 +81,19 @@ async function installCourseLevelRoutes(page: Page, fixture: {
       return;
     }
     if (request.method() === "GET" && path === "/api/v1/admin/course-merge-groups") {
-      await route.fulfill({ json: fixture.mergeGroups ?? [] });
+      await route.fulfill({ json: mergeGroups });
+      return;
+    }
+    const mergeLevelMatch = path.match(/^\/api\/v1\/admin\/course-merge-groups\/([^/]+)\/level$/);
+    if (request.method() === "PUT" && mergeLevelMatch) {
+      const body = request.postDataJSON() as { level?: number | null };
+      const mergeGroup = mergeGroups.find((item) => item.id === mergeLevelMatch[1]);
+      if (!mergeGroup) {
+        await route.fulfill({ status: 404, json: { message: "Merged course group not found" } });
+        return;
+      }
+      mergeGroup.level = body.level ?? null;
+      await route.fulfill({ json: { status: "ok" } });
       return;
     }
     if (request.method() === "GET" && path === "/api/v1/admin/course-link-suggestions") {
@@ -105,6 +118,46 @@ const C4_LINK: CourseMergeGroupConfig = {
   sit_in_rule_id: RULES[0].id, course_codes: ["26453296000", "262073290700"],
   course_names: ["SAT Math: Beginner C4", "SAT Math: Beginner C4 (split)"], rule_source_course_code: "26453296000",
 };
+
+test("setting a continuation level updates both linked rows and persists without a cycle", async ({ page }) => {
+  const courses = C4_COURSES.map((course) => ({
+    ...course,
+    cycle_id: "",
+    cycle_label: "",
+    level: null,
+    root_course_group_id: C4_GROUP.id,
+    root_course_group_name: C4_GROUP.name,
+  }));
+  await installCourseLevelRoutes(page, {
+    courses,
+    groups: [C4_GROUP],
+    mergeGroups: [{ ...C4_LINK, level: null, cycle_id: null, cycle_label: null }],
+  });
+  await page.goto("/course-levels");
+
+  const table = page.getByRole("region", { name: "Course levels table" });
+  const sourceRow = table.getByRole("row").filter({ hasText: "26453296000" });
+  const linkedRow = table.getByRole("row").filter({ hasText: "262073290700" });
+  const sourceLevel = sourceRow.getByRole("spinbutton", { name: "Level for 26453296000" });
+  const linkedLevel = linkedRow.getByRole("spinbutton", { name: "Level for 262073290700" });
+
+  await expect(sourceLevel).toBeEnabled();
+  await expect(linkedLevel).toBeEnabled();
+  await linkedLevel.fill("4");
+  await expect(sourceLevel).toHaveValue("4");
+  await expect(linkedLevel).toHaveValue("4");
+  await linkedRow.getByRole("button", { name: "Save level for 262073290700" }).click();
+  await expect(sourceLevel).toHaveValue("4");
+  await expect(linkedLevel).toHaveValue("4");
+
+  await page.reload();
+  const reloadedTable = page.getByRole("region", { name: "Course levels table" });
+  await expect(reloadedTable.getByRole("row").filter({ hasText: "26453296000" }).getByRole("spinbutton", { name: "Level for 26453296000" })).toHaveValue("4");
+  await expect(reloadedTable.getByRole("row").filter({ hasText: "262073290700" }).getByRole("spinbutton", { name: "Level for 262073290700" })).toHaveValue("4");
+  await expect(page.getByRole("region", { name: "SAT MATH C4/2026", exact: true }).getByText("Needs attention", { exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectManagerAccessible(page);
+});
 
 test("adding a continuation by either course code places both codes in the target group", async ({ page }) => {
   const routes = await installCourseLevelRoutes(page, { courses: [...C4_COURSES, COURSES[1]], groups: [GROUPS[0]], mergeGroups: [C4_LINK] });
@@ -138,6 +191,13 @@ test("adding a continuation by either course code places both codes in the targe
 
   await expect(table.getByText("26453296000", { exact: true })).toBeVisible();
   await expect(table.getByText("262073290700", { exact: true })).toBeVisible();
+  const sourceRow = table.getByRole("row").filter({ hasText: "26453296000" });
+  const linkedRow = table.getByRole("row").filter({ hasText: "262073290700" });
+  const sourceLevel = sourceRow.getByRole("spinbutton", { name: "Level for 26453296000" });
+  const linkedLevel = linkedRow.getByRole("spinbutton", { name: "Level for 262073290700" });
+  await linkedLevel.fill("4");
+  await expect(sourceLevel).toHaveValue("4");
+  await linkedRow.getByRole("button", { name: "Save level for 262073290700" }).click();
 
   await page.reload();
   if (await page.evaluate(() => window.innerWidth < 1024)) {
@@ -149,6 +209,8 @@ test("adding a continuation by either course code places both codes in the targe
   await expect(table.getByText("262073290700", { exact: true })).toBeVisible();
   await expect(table.getByText("Rule source (linked)", { exact: true })).toBeVisible();
   await expect(table.getByText("Follows 26453296000", { exact: true })).toBeVisible();
+  await expect(table.getByRole("row").filter({ hasText: "26453296000" }).getByRole("spinbutton", { name: "Level for 26453296000" })).toHaveValue("4");
+  await expect(table.getByRole("row").filter({ hasText: "262073290700" }).getByRole("spinbutton", { name: "Level for 262073290700" })).toHaveValue("4");
   await expect(page.getByRole("region", { name: "SAT MATH C4/2026", exact: true }).getByText("Ready", { exact: true })).toBeVisible();
 });
 

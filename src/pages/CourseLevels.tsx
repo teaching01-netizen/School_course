@@ -180,7 +180,7 @@ export default function CourseLevels() {
         <div>
           <h2 id="course-level-manager-heading" className="text-lg font-semibold text-[var(--color-wi-text)]">Course level manager</h2>
           <p className="mt-1 max-w-3xl text-sm text-[var(--color-wi-text-light)]">
-            Set levels, move courses between groups, and review readiness. Levels save per course.
+            Set levels, move courses between groups, and review readiness. Continuation links share one level across both course IDs.
           </p>
         </div>
         <div className="mt-4">
@@ -214,6 +214,7 @@ export default function CourseLevels() {
               mergeConfigRetrying={retryingMergeConfig}
               onRetryMergeConfig={() => void retryMergeConfig()}
               onCoursesChange={setCourses}
+              onMergeGroupsChange={setMergeGroups}
               onGroupsChange={setGroups}
             />
           )}

@@ -74,7 +74,7 @@ function suggestionPage(items: CourseLinkSuggestion[]): CourseLinkSuggestionsRes
 describe("CourseLevels linked courses", () => {
   beforeEach(() => { mockApiJson.mockReset(); });
 
-  it("keeps every linked member read-only and shows the effective level", async () => {
+  it("lets continuation members edit one shared level", async () => {
     setupCourseLevelsApi(mockApiJson, { courses: LINKED_COURSES, groups: GROUPS_WITH_RULE, mergeGroups: [CONTINUATION_GROUP] });
     render(renderWithProviders(<CourseLevels />));
     const manager = await screen.findByRole("region", { name: "Course level manager" });
@@ -84,28 +84,28 @@ describe("CourseLevels linked courses", () => {
 
     const sourceInput = within(sourceRow).getByRole("spinbutton", { name: "Level for MATH-101" });
     const splitInput = within(splitRow).getByRole("spinbutton", { name: "Level for MATH-901" });
-    expect(sourceInput).toBeDisabled();
+    expect(sourceInput).toBeEnabled();
     expect(sourceInput).toHaveValue(2);
-    expect(within(sourceRow).getByText(/may override this source course's level/)).toBeInTheDocument();
+    expect(within(sourceRow).getByText(/Shared level for both linked course IDs/)).toBeInTheDocument();
     expect(within(sourceRow).getByText("Rule source (linked)")).toBeInTheDocument();
-    expect(splitInput).toBeDisabled();
+    expect(splitInput).toBeEnabled();
     expect(splitInput).toHaveValue(2);
-    expect(within(splitRow).getByText(/Level and cycle follow MATH-101 through the link/)).toBeInTheDocument();
+    expect(within(splitRow).getByText(/Shared level for both linked course IDs/)).toBeInTheDocument();
     expect(within(splitRow).getByRole("link", { name: "Manage link in Sit-in Rules" })).toHaveAttribute("href", "/admin/operations?tab=sit-in-rules");
     expect(within(splitRow).getByText("Follows MATH-101")).toBeInTheDocument();
     expect(within(manager).getByText("2 linked courses in this group")).toBeInTheDocument();
   });
 
-  it("makes the source read-only when the link overrides its level", async () => {
+  it("allows editing a continuation level when the link overrides its source", async () => {
     setupCourseLevelsApi(mockApiJson, { courses: LINKED_COURSES, groups: GROUPS_WITH_RULE, mergeGroups: [CONTINUATION_GROUP_OVERRIDE] });
     render(renderWithProviders(<CourseLevels />));
     const manager = await screen.findByRole("region", { name: "Course level manager" });
 
     const sourceRow = within(manager).getByText("MATH-101").closest("tr") as HTMLElement;
     const sourceInput = within(sourceRow).getByRole("spinbutton", { name: "Level for MATH-101" });
-    expect(sourceInput).toBeDisabled();
+    expect(sourceInput).toBeEnabled();
     expect(sourceInput).toHaveValue(4);
-    expect(within(sourceRow).getByText(/may override this source course's level/)).toBeInTheDocument();
+    expect(within(sourceRow).getByText(/Saving overrides the source course's level for this link/)).toBeInTheDocument();
     expect(within(sourceRow).getByRole("button", { name: "Save level for MATH-101" })).toBeDisabled();
   });
 
@@ -208,7 +208,7 @@ describe("CourseLevels linked courses", () => {
     await user.click(within(card).getByRole("button", { name: "Link as same course" }));
 
     await waitFor(() => expect(within(manager).getByText("Follows MATH-101")).toBeInTheDocument());
-    expect(sourceInput).toBeDisabled();
+    expect(sourceInput).toBeEnabled();
     expect(sourceInput).toHaveValue(2);
     expect(mockApiJson.mock.calls.filter(([path]) => path === "/api/v1/admin/course-merge-groups").length).toBeGreaterThanOrEqual(2);
     expect(mockApiJson.mock.calls.filter(([path]) => String(path).startsWith("/api/v1/admin/course-levels")).length).toBeGreaterThanOrEqual(2);
