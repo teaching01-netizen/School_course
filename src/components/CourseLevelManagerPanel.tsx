@@ -34,7 +34,7 @@ type CourseLevelManagerPanelProps = {
 type LevelStatus = "ready" | "attention" | "empty";
 
 type EffectiveCourse = {
-  course: CourseLevelItem;
+  groupCourse: CourseLevelItem | null;
   mergeGroup: CourseMergeGroupConfig | null;
   displayLevel: number | null;
   cycleId: string | null;
@@ -105,10 +105,6 @@ function countGaps(entries: EffectiveEntry[]): number {
   return gaps;
 }
 
-function groupCourses(courses: CourseLevelItem[], groupId: string): CourseLevelItem[] {
-  return courses.filter((course) => groupId === UNGROUPED_ID ? course.root_course_group_id === null : course.root_course_group_id === groupId);
-}
-
 function StatusBadge({ level }: { level: number | null }) {
   const status = levelStatus(level);
   return (
@@ -164,14 +160,6 @@ export default function CourseLevelManagerPanel({
   const [newLevel, setNewLevel] = useState("");
   const persistedRef = useRef<Map<string, string>>(new Map());
 
-  const groupOptions = useMemo(() => {
-    const ungroupedCount = courses.filter((course) => course.root_course_group_id === null).length;
-    return [
-      ...groups.map((group) => ({ id: group.id, name: group.name, courseCount: courses.filter((course) => course.root_course_group_id === group.id).length, virtual: false })),
-      { id: UNGROUPED_ID, name: "Unassigned", courseCount: ungroupedCount, virtual: true },
-    ];
-  }, [courses, groups]);
-
   const effective = useMemo(() => {
     const mergeByCode = new Map<string, CourseMergeGroupConfig>();
     for (const group of mergeGroups) {
@@ -180,14 +168,14 @@ export default function CourseLevelManagerPanel({
     const courseByCode = new Map(courses.map((course) => [course.code, course]));
     const rows = new Map<string, EffectiveCourse>();
     const entries: EffectiveEntry[] = [];
-    const seenMergeGroups = new Set<string>();
+    const seenMergeScopes = new Set<string>();
 
     for (const course of courses) {
       const mergeGroup = mergeByCode.get(course.code) ?? null;
       if (!mergeGroup) {
         const cycleId = course.cycle_id || null;
         rows.set(course.id, {
-          course,
+          groupCourse: course,
           mergeGroup: null,
           displayLevel: course.level,
           cycleId,
@@ -219,6 +207,7 @@ export default function CourseLevelManagerPanel({
       const isContinuation = Boolean(mergeGroup.rule_source_course_code);
       const sourceCourse = mergeGroup.rule_source_course_code ? courseByCode.get(mergeGroup.rule_source_course_code) ?? null : null;
       const canonical = sourceCourse ?? courseByCode.get(mergeGroup.course_codes[0] ?? "") ?? course;
+      const groupCourse = isContinuation ? sourceCourse : course;
       const isSource = Boolean(mergeGroup.rule_source_course_code && mergeGroup.rule_source_course_code === course.code);
       // The course list returns each member's raw level/cycle, while the merge
       // config returns one resolved effective value. For a continuation link the
@@ -236,7 +225,7 @@ export default function CourseLevelManagerPanel({
           ? "The link may override this source course's level. Effective level and cycle are managed in Sit-in Rules."
           : `Level and cycle follow ${mergeGroup.rule_source_course_code} through the link in Sit-in Rules.`;
       rows.set(course.id, {
-        course,
+        groupCourse,
         mergeGroup,
         displayLevel: mergeGroup.level,
         cycleId,
@@ -248,16 +237,20 @@ export default function CourseLevelManagerPanel({
         missingCycle: mergeGroup.level !== null && !cycleId,
       });
 
-      if (!seenMergeGroups.has(mergeGroup.id)) {
-        seenMergeGroups.add(mergeGroup.id);
+      const readinessCourse = groupCourse ?? canonical;
+      const readinessKey = isContinuation
+        ? `merge:${mergeGroup.id}`
+        : `merge:${mergeGroup.id}:${scopeKey(readinessCourse.root_course_group_id, readinessCourse.subject_id, cycleId)}`;
+      if (!seenMergeScopes.has(readinessKey)) {
+        seenMergeScopes.add(readinessKey);
         entries.push({
-          key: `merge:${mergeGroup.id}`,
-          courseId: canonical.id,
-          code: canonical.code,
-          subjectId: canonical.subject_id,
-          subjectCode: canonical.subject_code,
-          subjectName: canonical.subject_name,
-          rootGroupId: canonical.root_course_group_id,
+          key: readinessKey,
+          courseId: readinessCourse.id,
+          code: readinessCourse.code,
+          subjectId: readinessCourse.subject_id,
+          subjectCode: readinessCourse.subject_code,
+          subjectName: readinessCourse.subject_name,
+          rootGroupId: readinessCourse.root_course_group_id,
           cycleId,
           cycleLabel,
           level: mergeGroup.level,
@@ -271,11 +264,28 @@ export default function CourseLevelManagerPanel({
     return { rows, entries };
   }, [courses, mergeGroups]);
 
+  const coursesByGroup = useMemo(() => {
+    const grouped = new Map<string, CourseLevelItem[]>();
+    for (const course of courses) {
+      const groupCourse = effective.rows.get(course.id)?.groupCourse ?? course;
+      const groupId = groupCourse.root_course_group_id ?? UNGROUPED_ID;
+      const members = grouped.get(groupId) ?? [];
+      members.push(course);
+      grouped.set(groupId, members);
+    }
+    return grouped;
+  }, [courses, effective]);
+
+  const groupOptions = useMemo(() => [
+    ...groups.map((group) => ({ id: group.id, name: group.name, courseCount: coursesByGroup.get(group.id)?.length ?? 0, virtual: false })),
+    { id: UNGROUPED_ID, name: "Unassigned", courseCount: coursesByGroup.get(UNGROUPED_ID)?.length ?? 0, virtual: true },
+  ], [coursesByGroup, groups]);
+
   const selectedGroup = groupOptions.find((group) => group.id === selectedGroupId) ?? groupOptions[0] ?? null;
   const selectedRootGroup = selectedGroup && !selectedGroup.virtual ? groups.find((group) => group.id === selectedGroup.id) ?? null : null;
   const selectedCourses = useMemo(() => {
     if (!selectedGroup) return [];
-    return groupCourses(courses, selectedGroup.id).sort((a, b) => {
+    return [...(coursesByGroup.get(selectedGroup.id) ?? [])].sort((a, b) => {
       const subject = a.subject_code.localeCompare(b.subject_code);
       if (subject !== 0) return subject;
       const cycleA = effective.rows.get(a.id)?.cycleLabel ?? a.cycle_label;
@@ -289,7 +299,7 @@ export default function CourseLevelManagerPanel({
       if (levelA !== null && levelB !== null && levelA !== levelB) return levelA - levelB;
       return a.code.localeCompare(b.code);
     });
-  }, [courses, effective, selectedGroup]);
+  }, [coursesByGroup, effective, selectedGroup]);
   const addableCourses = useMemo(
     () => selectedCourses.filter((course) => {
       const row = effective.rows.get(course.id);
@@ -581,7 +591,9 @@ export default function CourseLevelManagerPanel({
   function requestDeleteGroup(group: RootCourseGroupInfo) {
     const count = courses.filter((course) => course.root_course_group_id === group.id).length;
     if (count > 0) {
-      setGroupError(`Move ${count} course${count === 1 ? "" : "s"} out first. Course groups can only be deleted after every course is moved or unassigned.`);
+      setGroupError(coursesByGroup.get(group.id)?.length
+        ? `Move ${count} course${count === 1 ? "" : "s"} out first. Course groups can only be deleted after every course is moved or unassigned.`
+        : "This group is still saved as an original assignment on a continuation course. It cannot be deleted while that assignment exists.");
       return;
     }
     setGroupError(null);
@@ -612,13 +624,10 @@ export default function CourseLevelManagerPanel({
 
   async function assignCourse(courseId: string) {
     if (!selectedGroup || selectedGroup.virtual || savingCourseId || mergeConfigError) return;
-    const course = courses.find((item) => item.id === courseId);
+    const row = effective.rows.get(courseId);
+    const course = row?.groupCourse;
     if (!course || course.root_course_group_id === selectedGroup.id) return;
-    if (effective.rows.get(course.id)?.mergeGroup) {
-      addToast("error", "Linked courses cannot be moved between course groups. Manage the link in Sit-in Rules.");
-      return;
-    }
-    if (course.level !== null && !selectedRootGroup?.sit_in_rule_id) {
+    if ((row.displayLevel ?? course.level) !== null && !selectedRootGroup?.sit_in_rule_id) {
       addToast("error", "Assign a sit-in rule before adding a levelled course to this group");
       return;
     }
@@ -678,12 +687,17 @@ export default function CourseLevelManagerPanel({
   }
 
   const courseOptions = courses
-    .filter((course) => course.root_course_group_id !== selectedGroup?.id && !effective.rows.get(course.id)?.mergeGroup)
-    .map((course) => ({
-      value: course.id,
-      label: `${course.code} — ${course.name}`,
-      keywords: `${course.code} ${course.name} ${course.subject_code} ${course.subject_name}`,
-    }));
+    .flatMap((course) => {
+      const row = effective.rows.get(course.id);
+      const groupCourse = row?.groupCourse;
+      if (!groupCourse || groupCourse.root_course_group_id === selectedGroup?.id) return [];
+      const linkedNote = row.mergeGroup?.rule_source_course_code ? " (moves both linked courses)" : "";
+      return [{
+        value: course.id,
+        label: `${course.code} — ${course.name}${linkedNote}`,
+        keywords: `${course.code} ${course.name} ${course.subject_code} ${course.subject_name}`,
+      }];
+    });
   const groupCourseOptions = [{ value: "", label: "— Unassigned —" }, ...groups.map((group) => ({ value: group.id, label: group.name }))];
   const selectedGroupDetails = selectedGroup ? groupStatusFor(selectedGroup) : { status: "empty" as LevelStatus, label: "Empty", gaps: 0 };
   const selectedEntries = selectedGroup && !selectedGroup.virtual
@@ -1103,7 +1117,7 @@ export default function CourseLevelManagerPanel({
                               </Button>
                               <TypeaheadSelect
                                 aria-label={`Move ${course.code} to group`}
-                                value={course.root_course_group_id ?? ""}
+                                value={(row?.groupCourse ?? course).root_course_group_id ?? ""}
                                 onChange={(value) => void moveCourse(course, value)}
                                 options={groupCourseOptions}
                                 placeholder="Group"
@@ -1113,7 +1127,11 @@ export default function CourseLevelManagerPanel({
                                 className="w-36"
                               />
                             </div>
-                            {row?.mergeGroup ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Membership is fixed while linked.</p> : null}
+                            {row?.mergeGroup && row.groupCourse ? (
+                              <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+                                Use Add course in the destination group to move {row.mergeGroup.rule_source_course_code ? "both linked courses" : "this course"}.
+                              </p>
+                            ) : null}
                           </td>
                         </tr>
                       );
