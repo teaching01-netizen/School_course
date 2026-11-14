@@ -144,7 +144,7 @@ func TestPolicyAuditV2KeepsAuthoritativeBlockers(t *testing.T) {
 				now = f.day.Add(-12 * time.Hour)
 			}
 			if kind == "hidden_expected_class" {
-				if _, err := f.tx.Exec(context.Background(), `UPDATE courses SET student_booking_enabled=false WHERE id=$1`, f.sibling); err != nil {
+				if _, err := f.tx.Exec(context.Background(), `UPDATE courses SET subject_id=NULL, student_booking_enabled=false WHERE id=$1`, f.sibling); err != nil {
 					t.Fatal(err)
 				}
 			}

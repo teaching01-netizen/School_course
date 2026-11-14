@@ -674,6 +674,26 @@ export const LEAVE_POLICY_COURSE_RULES: LeavePolicyCourseRule[] = [
     ],
   },
 
+  {
+    id: "sat-verbal-ultimate-intensive-c4-2026",
+    courseName: "SAT Verbal Ultimate Intensive C4/2026",
+    subject: "Intensive",
+    ruleType: "rank_chain",
+    priorityCount: 1,
+    description: "Sit in with Reading Mastery.",
+    makeupRules: ["1st Priority: Reading Mastery"],
+    lastClassExcluded: true,
+    eligibleTargets: ["Reading Mastery"],
+    priorities: [
+      {
+        level: 1,
+        ruleType: "rank_chain",
+        label: "1st Priority: Reading Mastery",
+        eligibleTargets: ["Reading Mastery"],
+      },
+    ],
+  },
+
   // ── Believe (2 priorities, bidirectional) ──────────────────────────────
   {
     id: "sat-verbal-believe",

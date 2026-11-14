@@ -348,7 +348,7 @@ func (s *server) setBooking(w http.ResponseWriter, r *http.Request, scope string
 			return status, map[string]any{"code": code, "message": message, "course_ids": courseIDs}, fmt.Errorf("%s", code)
 		}
 		var missing, subjectless, stale []string
-		sourceStates := make(map[pgtype.UUID]bool)
+		selectedSources := make([]pgtype.UUID, 0, len(ids))
 		for _, id := range ids {
 			target, exists := byID[id]
 			if !exists {
@@ -364,7 +364,7 @@ func (s *server) setBooking(w http.ResponseWriter, r *http.Request, scope string
 			if replace && (target.SubjectID != subjectID || target.SourceSubjectID != subjectID) {
 				return reject(http.StatusBadRequest, "course_subject_mismatch", "Course and rule source must belong to this subject", []string{id.String()})
 			}
-			sourceStates[target.SourceID] = target.SourceEnabled
+			selectedSources = append(selectedSources, target.SourceID)
 		}
 		if len(missing) > 0 {
 			return reject(http.StatusNotFound, "course_not_found", "Course not found", missing)
@@ -375,27 +375,43 @@ func (s *server) setBooking(w http.ResponseWriter, r *http.Request, scope string
 		if len(subjectless) > 0 {
 			return reject(http.StatusUnprocessableEntity, "course_subject_required", "Assign the rule source to a subject before turning it on", subjectless)
 		}
-		var enable, disable, sources []pgtype.UUID
-		for id, before := range sourceStates {
-			sources = append(sources, id)
-			if before != active {
-				if active {
-					enable = append(enable, id)
-				} else {
-					disable = append(disable, id)
-				}
-			}
+		selected, err := qtx.CourseBookingStates(ctx, selectedSources)
+		if err != nil {
+			return 0, nil, err
 		}
+		desired := make(map[pgtype.UUID]bool, len(selected))
+		before := make(map[pgtype.UUID]bool, len(selected))
+		for _, state := range selected {
+			desired[state.ID] = active
+			before[state.ID] = state.Enabled
+		}
+
 		if replace {
 			others, err := qtx.EnabledBookingCoursesBySubject(ctx, subjectID)
 			if err != nil {
 				return 0, nil, err
 			}
-			for _, id := range others {
-				if _, selected := sourceStates[id]; !selected {
-					disable = append(disable, id)
-					sources = append(sources, id)
+			replaced, err := qtx.CourseBookingStates(ctx, others)
+			if err != nil {
+				return 0, nil, err
+			}
+			for _, state := range replaced {
+				if _, selected := desired[state.ID]; !selected {
+					desired[state.ID] = false
+					before[state.ID] = state.Enabled
 				}
+			}
+		}
+		var enable, disable, sources []pgtype.UUID
+		for id, after := range desired {
+			sources = append(sources, id)
+			if before[id] == after {
+				continue
+			}
+			if after {
+				enable = append(enable, id)
+			} else {
+				disable = append(disable, id)
 			}
 		}
 		if _, err := qtx.CoursesLockOrdered(ctx, sources); err != nil {

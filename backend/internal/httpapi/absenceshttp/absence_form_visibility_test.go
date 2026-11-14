@@ -230,6 +230,35 @@ func TestStudentProfileExcludesInactiveEnrolledSubjects(t *testing.T) {
 	}
 }
 
+func TestStudentSubmissionUsesRegularMergeBooking(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	pool := newPoolPending(t, databaseURL)
+	t.Cleanup(pool.Close)
+	seed := seedActiveCourseFixture(t, pool)
+	course, peer := seed.courses["current"], seed.courses["sibling"]
+	if _, err := pool.Exec(t.Context(), `
+		WITH g AS (INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT g.id, member.id, member.position FROM g
+		CROSS JOIN (VALUES ($2::uuid, 1), ($3::uuid, 2)) AS member(id, position)
+	`, seed.suffix, course, peer); err != nil {
+		t.Fatal(err)
+	}
+	setAbsenceFormVisible(t, pool, course, false)
+	setAbsenceFormVisible(t, pool, peer, true)
+	ensureCourseAbsenceHeadroom(t, pool, course)
+	session, date := pickCourseSessionDate(t, pool, course, "Asia/Bangkok")
+	token := seedVerifiedStudentSession(t, pool, seed.wcode)
+	response := postSelfService(t, selfServiceMux(t, pool), "/api/v1/absences", token, map[string]any{
+		"reason": "Medical appointment", "subject_id": seed.subjID.String(), "course_id": course.String(),
+		"date_from": date, "date_to": date, "missed_session_ids": []string{session},
+	})
+	if response.Code != http.StatusCreated {
+		t.Fatalf("submit for a course with an active peer = %d: %s", response.Code, response.Body)
+	}
+}
+
 func TestStudentSubmissionChecksAvailabilityAfterCourseLock(t *testing.T) {
 	databaseURL := requireTestDBPending(t)
 	migrateUpOncePending(t, databaseURL)

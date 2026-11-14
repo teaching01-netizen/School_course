@@ -74,6 +74,7 @@ func satSpecs() []satCourseSpec {
 		{"r2", "sat-verbal-rank2", "SAT Verbal : Rank 2 C3", 5, 13}, // same slot as Rank 3 Sec 2
 		{"r1", "sat-verbal-rank1", "SAT Verbal : Rank 1 C3", 6, 9},
 		{"rm", "reading-mastery", "SAT Verbal Reading Mastery C3", 2, 9},
+		{"ui", "sat-verbal-ultimate-intensive-c4-2026", "SAT Verbal Ultimate Intensive C4/2026", 0, 9},
 		{"wr4", "sat-verbal-writing-rank4", "SAT Verbal Writing : Rank 4 C3", 1, 17},
 		{"rtp", "sat-verbal-realtime-practice", "SAT Verbal Real-Time Practice C3", 3, 9},
 		{"bu", "sat-verbal-brushup", "SAT Verbal Brush Up C3", 3, 17},
@@ -496,6 +497,25 @@ func TestSatVerbalFullChain(t *testing.T) {
 		}
 		if len(offered[c.courses["r3s1"].ID]) == 0 {
 			t.Fatalf("Rank 2 P1 = %v, want Rank 3 Sec 1", offered)
+		}
+	})
+
+	t.Run("ultimate_intensive_offers_only_reading_mastery", func(t *testing.T) {
+		_, token := c.student(t, "ui", "r2")
+		first := c.lookup(t, mux, token, "ui", 1, nil)
+		offered := first.availableByCourse()
+		masterySessions := offered[c.courses["rm"].ID]
+		if !equalInts(first.levels(), []int{1}) || first.sitIn.HasNext || len(offered) != 1 || len(masterySessions) == 0 {
+			t.Fatalf("expected only first-priority Reading Mastery sessions: %s", first.raw)
+		}
+		if reason := first.unavailableReason(finalOf("rm")); reason != "target_final_class" {
+			t.Fatalf("Reading Mastery final class reason = %q, want target_final_class", reason)
+		}
+		if response := c.submit(t, mux, token, "ui", 1, "r1", c.courses["r1"].Sessions[1]); response.Code != http.StatusBadRequest {
+			t.Fatalf("submit Rank 1 = %d, want 400: %s", response.Code, response.Body.String())
+		}
+		if response := c.submit(t, mux, token, "ui", 1, "rm", masterySessions[0]); response.Code != http.StatusCreated {
+			t.Fatalf("submit Reading Mastery = %d, want 201: %s", response.Code, response.Body.String())
 		}
 	})
 

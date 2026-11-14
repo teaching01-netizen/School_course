@@ -82,6 +82,13 @@ describe("SAT Verbal hardcoded leave policy", () => {
     }
   });
 
+  it("offers Reading Mastery as the only priority for Ultimate Intensive C4/2026", () => {
+    const rule = ruleById("sat-verbal-ultimate-intensive-c4-2026");
+    expect(rule.priorityCount).toBe(1);
+    expect(optionLabels(rule.id, rule.courseName)).toEqual(["Reading Mastery"]);
+    expect(optionLabels(rule.id, "SAT Verbal Rank 2", 3)).toEqual(["Reading Mastery"]);
+  });
+
   it("still blocks every policy on the final class of a cycle", () => {
     const result = evaluateLeavePolicy({
       courseRuleId: "sat-verbal-reading-rank5",

@@ -30,5 +30,6 @@ Note: ถ้าหากลาล่วงหน้าและย้อนห�
 | **SAT Verbal Brush Up (Note จะอยู่ rank 4,5)** | *1.Rank 4 → Rank 5 (R, W) 2\. Rank 5 \-\> Rank 4 (R,W) Rank 3 Sec 1 or Sec 2 อยู่ที่ว่าน้องเรียนคอร์สหลักอะไร*  |  |  |
 | **SAT Verbal Knock Out** | *Rank 3*  **\*ยกเว้นคลาสสุดท้ายของไซเคิล** *Note: แล้วแต่ว่าน้องอยู่ rank อะไร  เช่น ถ้าหากอยู่ rank 3 → rank 2  ถ้าหากอยู่ rank 2 → rank 3* | Rank 2 **\*ยกเว้นคลาสสุดท้ายของไซเคิล** *Note: แล้วแต่ว่าน้องอยู่ rank อะไร  เช่น ถ้าหากอยู่ rank 2 → rank 3  ถ้าหากอยู่ rank 3 → rank 2*  |  |
 | **SAT Verbal Intensive** | *Rank 3*  **\*ยกเว้นคลาสสุดท้ายของไซเคิล** *Note: แล้วแต่ว่าน้องอยู่ rank อะไร  เช่น ถ้าหากอยู่ rank 3 → rank 2  ถ้าหากอยู่ rank 2 → rank 3* | Rank 2 **\*ยกเว้นคลาสสุดท้ายของไซเคิล** *Note: แล้วแต่ว่าน้องอยู่ rank อะไร  เช่น ถ้าหากอยู่ rank 2 → rank 3  ถ้าหากอยู่ rank 3 → rank 2*  |  |
+| **SAT Verbal Ultimate Intensive C4/2026** | Reading Mastery **\*ยกเว้นคลาสสุดท้ายของไซเคิล** |  |  |
 | **SAT Verbal Believe** | *Rank 3*  **\*ยกเว้นคลาสสุดท้ายของไซเคิล** *Note: แล้วแต่ว่าน้องอยู่ rank อะไร  เช่น ถ้าหากอยู่ rank 3 → rank 2  ถ้าหากอยู่ rank 2 → rank 3* | Rank 2 **\*ยกเว้นคลาสสุดท้ายของไซเคิล** *Note: แล้วแต่ว่าน้องอยู่ rank อะไร  เช่น ถ้าหากอยู่ rank 2 → rank 3  ถ้าหากอยู่ rank 3 → rank 2*  |  |
 

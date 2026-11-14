@@ -96,7 +96,7 @@ var (
 	errBookingSessionInactive = errors.New("a selected session's course is closed for student booking")
 )
 
-// Lock the requested courses and their rule sources as a single ordered set.
+// Lock the requested courses, rule sources, and booking peers as a single ordered set.
 // A savepoint lets a topology change release that set before retrying.
 func lockStudentBookingCourses(ctx context.Context, q *sqldb.Queries, tx pgx.Tx, courseIDs, sessionIDs []pgtype.UUID) (map[pgtype.UUID]bool, error) {
 	for attempt := 0; attempt < 3; attempt++ {
@@ -115,6 +115,7 @@ func lockStudentBookingCourses(ctx context.Context, q *sqldb.Queries, tx pgx.Tx,
 		toLock := append([]pgtype.UUID(nil), ids...)
 		for _, target := range targets {
 			toLock = append(toLock, target.SourceID)
+			toLock = append(toLock, target.PeerIDs...)
 		}
 		savepoint, err := tx.Begin(ctx)
 		if err != nil {
@@ -131,7 +132,7 @@ func lockStudentBookingCourses(ctx context.Context, q *sqldb.Queries, tx pgx.Tx,
 			current, err = work.CourseBookingTargets(ctx, ids)
 			if err == nil {
 				for _, course := range current {
-					if !lockedIDs[course.SourceID] {
+					if !bookingTargetLocked(course, lockedIDs) {
 						err = errBookingScopeChanged
 						break
 					}
@@ -152,6 +153,18 @@ func lockStudentBookingCourses(ctx context.Context, q *sqldb.Queries, tx pgx.Tx,
 	return nil, errBookingScopeChanged
 }
 
+func bookingTargetLocked(target sqldb.CourseBookingTarget, locked map[pgtype.UUID]bool) bool {
+	if !locked[target.CourseID] || !locked[target.SourceID] {
+		return false
+	}
+	for _, peer := range target.PeerIDs {
+		if !locked[peer] {
+			return false
+		}
+	}
+	return true
+}
+
 // Check the actual session courses after locking the session rows. A session
 // moved since the initial course lookup must be selected again by the student.
 func validateStudentBookingSessions(ctx context.Context, q *sqldb.Queries, lockedCourses map[pgtype.UUID]bool, ids []pgtype.UUID) error {
@@ -167,10 +180,10 @@ func validateStudentBookingSessions(ctx context.Context, q *sqldb.Queries, locke
 		return err
 	}
 	for _, course := range targets {
-		if !lockedCourses[course.CourseID] || !lockedCourses[course.SourceID] {
+		if !bookingTargetLocked(course, lockedCourses) {
 			return errBookingScopeChanged
 		}
-		if !course.SourceEnabled {
+		if !course.Enabled {
 			return errBookingSessionInactive
 		}
 	}

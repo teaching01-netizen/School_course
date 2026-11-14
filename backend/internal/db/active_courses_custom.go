@@ -335,12 +335,20 @@ type CourseBookingTarget struct {
 	SubjectID       pgtype.UUID
 	SourceID        pgtype.UUID
 	SourceSubjectID pgtype.UUID
-	SourceEnabled   bool
+	Enabled         bool
+	PeerIDs         []pgtype.UUID
 }
 
 func (q *Queries) CourseBookingTargets(ctx context.Context, ids []pgtype.UUID) ([]CourseBookingTarget, error) {
 	rows, err := q.db.Query(ctx, `
-		SELECT c.id, c.subject_id, source.id, source.subject_id, source.student_booking_enabled
+		SELECT c.id, c.subject_id, source.id, source.subject_id, cfg.absence_form_active,
+		       ARRAY(
+		           SELECT peer.course_id
+		           FROM course_merge_group_members peer
+		           JOIN course_merge_groups g ON g.id = peer.group_id
+		           WHERE peer.group_id = cfg.merge_group_id AND g.rule_source_course_id IS NULL
+		             AND peer.course_id <> c.id
+		       )
 		FROM course_rule_configs cfg
 		JOIN courses c ON c.id = cfg.course_id
 		JOIN courses source ON source.id = cfg.rule_course_id
@@ -353,7 +361,7 @@ func (q *Queries) CourseBookingTargets(ctx context.Context, ids []pgtype.UUID) (
 	var targets []CourseBookingTarget
 	for rows.Next() {
 		var target CourseBookingTarget
-		if err := rows.Scan(&target.CourseID, &target.SubjectID, &target.SourceID, &target.SourceSubjectID, &target.SourceEnabled); err != nil {
+		if err := rows.Scan(&target.CourseID, &target.SubjectID, &target.SourceID, &target.SourceSubjectID, &target.Enabled, &target.PeerIDs); err != nil {
 			return nil, err
 		}
 		targets = append(targets, target)
@@ -362,7 +370,11 @@ func (q *Queries) CourseBookingTargets(ctx context.Context, ids []pgtype.UUID) (
 }
 
 func (q *Queries) EnabledBookingCoursesBySubject(ctx context.Context, subjectID pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, `SELECT id FROM courses WHERE subject_id = $1 AND student_booking_enabled ORDER BY id`, subjectID)
+	rows, err := q.db.Query(ctx, `
+		SELECT c.id FROM courses c
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id AND cfg.rule_course_id = c.id
+		WHERE c.subject_id = $1 AND cfg.absence_form_active
+	`, subjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -376,6 +388,44 @@ func (q *Queries) EnabledBookingCoursesBySubject(ctx context.Context, subjectID 
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+type CourseBookingState struct {
+	ID      pgtype.UUID
+	Enabled bool
+}
+
+// CourseBookingStates includes both writable members of a regular merge.
+// Continuation IDs have already been resolved to their rule source by the caller.
+func (q *Queries) CourseBookingStates(ctx context.Context, sourceIDs []pgtype.UUID) ([]CourseBookingState, error) {
+	rows, err := q.db.Query(ctx, `
+		WITH targets AS (
+			SELECT unnest($1::uuid[]) AS course_id
+			UNION
+			SELECT peer.course_id
+			FROM course_merge_group_members member
+			JOIN course_merge_groups g ON g.id = member.group_id AND g.rule_source_course_id IS NULL
+			JOIN course_merge_group_members peer ON peer.group_id = g.id
+			WHERE member.course_id = ANY($1::uuid[])
+		)
+		SELECT c.id, c.student_booking_enabled
+		FROM targets
+		JOIN courses c ON c.id = targets.course_id
+		WHERE c.subject_id IS NOT NULL OR c.id = ANY($1::uuid[])
+	`, sourceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var states []CourseBookingState
+	for rows.Next() {
+		var state CourseBookingState
+		if err := rows.Scan(&state.ID, &state.Enabled); err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, rows.Err()
 }
 
 func (q *Queries) SetCourseBookingEnabled(ctx context.Context, ids []pgtype.UUID, enabled bool) error {

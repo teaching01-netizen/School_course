@@ -430,6 +430,57 @@ func TestActiveCourseStaysOnAfterSubjectChange(t *testing.T) {
 	}
 }
 
+func TestRegularMergeBooking(t *testing.T) {
+	env := newActiveCoursesEnv(t)
+	subject := env.seedSubject(t, "MERGE-BOOKING-"+env.suffix)
+	first := env.seedCourse(t, subject, "MERGE-A-"+env.suffix, true)
+	second := env.seedCourse(t, subject, "MERGE-B-"+env.suffix, false)
+	other := env.seedCourse(t, subject, "MERGE-OTHER-"+env.suffix, false)
+	if _, err := env.dbpool.Exec(t.Context(), `
+		WITH g AS (INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id)
+		INSERT INTO course_merge_group_members (group_id, course_id, position)
+		SELECT g.id, member.id, member.position FROM g
+		CROSS JOIN (VALUES ($2::uuid, 1), ($3::uuid, 2)) AS member(id, position)
+	`, "Merged "+env.suffix, first, second); err != nil {
+		t.Fatal(err)
+	}
+
+	checkPair := func(want bool) {
+		t.Helper()
+		for _, id := range []uuid.UUID{first, second} {
+			if got := env.courseVisible(t, id); got != want {
+				t.Fatalf("course %s visible = %v, want %v", id, got, want)
+			}
+		}
+	}
+	put := func(path string, body map[string]any) {
+		t.Helper()
+		if status, raw := env.do(t, http.MethodPut, "/api/v1/admin/active-courses"+path, body); status != http.StatusOK {
+			t.Fatalf("PUT %s: %d %s", path, status, raw)
+		}
+	}
+
+	checkPair(true) // Existing merge with only the first member enabled.
+	put("/set-active", map[string]any{"course_id": second, "active": false})
+	checkPair(false)
+	put("/set-active", map[string]any{"course_id": second, "active": true})
+	checkPair(true)
+	if env.courseVisible(t, other) {
+		t.Fatal("activation affected an unrelated course")
+	}
+	put("/set-active/bulk", map[string]any{"course_ids": []uuid.UUID{first}, "active": false})
+	checkPair(false)
+	put("/set-active/bulk", map[string]any{"course_ids": []uuid.UUID{first, second}, "active": true})
+	checkPair(true)
+	put("", map[string]any{"subject_id": subject, "course_id": first})
+	checkPair(true)
+	put("", map[string]any{"subject_id": subject, "course_id": other})
+	checkPair(false)
+	if !env.courseVisible(t, other) {
+		t.Fatal("replacement course must be visible")
+	}
+}
+
 // TestSetEndpointReplacesSubjectActives covers the CourseLevels single-picker
 // endpoint: PUT /active-courses makes the chosen course the subject's only
 // active class and rejects courses from another subject.
