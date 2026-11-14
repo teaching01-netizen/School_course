@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiJson } from "../../api/client";
+import { ApiRequestError, apiJson } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import LoadingSkeleton from "../../components/ui/LoadingSkeleton";
 import Button from "../../components/ui/Button";
@@ -19,7 +19,6 @@ import {
 type ActiveCoursesStats = {
   total_subjects: number;
   missing_active: number;
-  hidden_active: number;
 };
 
 type ActiveCoursesResponse = {
@@ -97,7 +96,7 @@ function CourseRow({
   const course = subject.courses.find((c) => c.course_id === courseId);
   if (!course) return null;
   const isActive = course.is_active;
-  const legacyHiddenActive = isActive && course.absence_form_visible === false;
+  const followsSource = course.rule_course_id && course.rule_course_id !== course.course_id;
 
   return (
     <div
@@ -125,20 +124,16 @@ function CourseRow({
       </span>
 
       <span className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
-        {legacyHiddenActive ? (
-          <span
-            className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-            title="Old data: the active class is hidden. Toggle it off and on to fix."
-          >
-            Active — hidden from form
-          </span>
-        ) : null}
-        <Switch
-          checked={isActive}
-          onCheckedChange={(next) => onToggleActive(course.course_id, next)}
-          disabled={saving}
-          aria-label={`${course.course_code} active`}
-        />
+        {followsSource ? (
+          <span className="text-xs text-[var(--color-wi-text-light)]">Follows {course.rule_course_code}</span>
+        ) : (
+          <Switch
+            checked={isActive}
+            onCheckedChange={(next) => onToggleActive(course.course_id, next)}
+            disabled={saving}
+            aria-label={`${course.course_code} active`}
+          />
+        )}
         {isActive ? (
           <span className="text-xs font-semibold text-green-700">Active</span>
         ) : (
@@ -168,11 +163,11 @@ export function ActiveCoursesSection() {
   const [sessionDateFilter, setSessionDateFilter] = useState<SessionDateFilterValue>(EMPTY_SESSION_DATE_FILTER);
   const sessionDateFilterError = validateSessionDateFilter(sessionDateFilter);
 
-  // The only selection state: course ids. Checkbox states, counts, and bulk
-  // previews all derive from it. Selection survives page changes so a bulk
-  // action can span pages; ids not on the current page stay in the set.
-  const [selection, setSelection] = useState<Set<string>>(new Set());
+  // Retain the rule source seen at selection time, including on other pages.
+  const [selection, setSelection] = useState<Map<string, string | undefined>>(new Map());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const latestLoad = useRef(0);
+  const currentPage = useRef({ offset: 0, search: "", statusFilter: status, dateFilter: sessionDateFilter });
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchInput), 300);
@@ -180,6 +175,8 @@ export function ActiveCoursesSection() {
   }, [searchInput]);
 
   async function loadSubjects(offset: number, search: string, statusFilter: StatusFilter, dateFilter: SessionDateFilterValue) {
+    currentPage.current = { offset, search, statusFilter, dateFilter };
+    const loadID = ++latestLoad.current;
     setLoading(true);
     setLoadError(null);
     try {
@@ -196,16 +193,22 @@ export function ActiveCoursesSection() {
         `/api/v1/admin/active-courses?${params.toString()}`,
         { method: "GET" },
       );
+      if (loadID !== latestLoad.current) return;
+      if (offset > 0 && data.subjects.length === 0) {
+        await loadSubjects(0, search, statusFilter, dateFilter);
+        return;
+      }
       setSubjects(data.subjects);
       setTotalSubjects(data.total_subjects ?? data.subjects.length);
       setSubjectOffset(data.offset ?? offset);
-      if (data.stats) setStats(data.stats);
+      setStats(data.stats ?? null);
     } catch (err) {
+      if (loadID !== latestLoad.current) return;
       const message = err instanceof Error ? err.message : "Failed to load active courses";
       setLoadError(message);
       addToast("error", message);
     } finally {
-      setLoading(false);
+      if (loadID === latestLoad.current) setLoading(false);
     }
   }
 
@@ -215,6 +218,16 @@ export function ActiveCoursesSection() {
     void loadSubjects(0, debouncedSearch, status, sessionDateFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, status, sessionDateFilter.from, sessionDateFilter.to, sessionDateFilterError]);
+
+  useEffect(() => {
+    if (sessionDateFilterError) return;
+    function refreshOnFocus() {
+      void loadSubjects(subjectOffset, debouncedSearch, status, sessionDateFilter);
+    }
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectOffset, debouncedSearch, status, sessionDateFilter.from, sessionDateFilter.to, sessionDateFilterError]);
 
   async function loadPage(offset: number) {
     setPageLoading(true);
@@ -246,9 +259,9 @@ export function ActiveCoursesSection() {
 
   function toggleCourseSelected(courseId: string) {
     setSelection((prev) => {
-      const next = new Set(prev);
+      const next = new Map(prev);
       if (next.has(courseId)) next.delete(courseId);
-      else next.add(courseId);
+      else next.set(courseId, loadedCourses.find(({ course }) => course.course_id === courseId)?.course.rule_course_id);
       return next;
     });
   }
@@ -256,11 +269,11 @@ export function ActiveCoursesSection() {
   function toggleSubjectCourses(subject: ActiveCourseSubject) {
     const ids = subject.courses.map((c) => c.course_id);
     setSelection((prev) => {
-      const next = new Set(prev);
+      const next = new Map(prev);
       const allSelected = ids.length > 0 && ids.every((id) => next.has(id));
-      for (const id of ids) {
-        if (allSelected) next.delete(id);
-        else next.add(id);
+      for (const course of subject.courses) {
+        if (allSelected) next.delete(course.course_id);
+        else next.set(course.course_id, course.rule_course_id);
       }
       return next;
     });
@@ -268,79 +281,44 @@ export function ActiveCoursesSection() {
 
   function togglePageSelection() {
     setSelection((prev) => {
-      const next = new Set(prev);
+      const next = new Map(prev);
       const target = !allPageSelected;
-      for (const id of pageCourseIds) {
-        if (target) next.add(id);
-        else next.delete(id);
+      for (const { course } of loadedCourses) {
+        if (target) next.set(course.course_id, course.rule_course_id);
+        else next.delete(course.course_id);
       }
       return next;
     });
   }
 
-  /** Local audit-count adjustments so the banner stays truthful without a
-   *  refetch; the next full load reconciles anything not derivable here. */
-  function bumpStats(delta: Partial<Pick<ActiveCoursesStats, "missing_active" | "hidden_active">>) {
-    setStats((prev) =>
-      prev
-        ? {
-            ...prev,
-            missing_active: Math.max(0, prev.missing_active + (delta.missing_active ?? 0)),
-            hidden_active: Math.max(0, prev.hidden_active + (delta.hidden_active ?? 0)),
-          }
-        : prev,
-    );
+  async function refreshAfterMutation() {
+    const { offset, search, statusFilter, dateFilter } = currentPage.current;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" }),
+      loadSubjects(offset, search, statusFilter, dateFilter),
+    ]);
   }
 
-  // ----- Immediate actions -----
-
-  /** A subject's audit state: whether any class is active and whether every
-   *  active class is actually visible. Mirrors the backend's per-subject
-   *  classification used by the stats and filter chips. */
-  function subjectAuditState(courses: ActiveCourseSubject["courses"]) {
-    const actives = courses.filter((c) => c.is_active);
-    return {
-      hasActive: actives.length > 0,
-      allVisible: actives.every((c) => c.absence_form_visible !== false),
-    };
-  }
-
-  async function toggleActive(subjectId: string, courseId: string, next: boolean) {
-    const subject = subjects.find((s) => s.subject_id === subjectId);
-    const course = subject?.courses.find((c) => c.course_id === courseId);
-    if (!subject || !course) return;
+  async function toggleActive(courseId: string, next: boolean) {
+    const course = loadedCourses.find((entry) => entry.course.course_id === courseId)?.course;
+    if (!course) return;
 
     setSavingActive((prev) => new Set(prev).add(courseId));
     try {
       await apiJson("/api/v1/admin/active-courses/set-active", {
         method: "PUT",
-        body: JSON.stringify({ course_id: courseId, active: next }),
+        body: JSON.stringify({
+          course_id: courseId,
+          active: next,
+          ...(course.rule_course_id && { expected_rule_course_ids: { [courseId]: course.rule_course_id } }),
+        }),
       });
-      // The server re-derives visibility for the whole subject (visible ⇔
-      // active), so mirror that locally instead of flipping one flag.
-      const before = subjectAuditState(subject.courses);
-      const toggled = subject.courses.map((c) => ({
-        ...c,
-        is_active: c.course_id === courseId ? next : c.is_active,
-        absence_form_visible: c.course_id === courseId ? next : c.is_active,
-      }));
-      const after = subjectAuditState(toggled);
-      setSubjects((prev) =>
-        prev.map((s) => (s.subject_id === subjectId ? { ...s, courses: toggled } : s)),
-      );
-      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
-      const missingDelta = (before.hasActive ? 0 : 1) - (after.hasActive ? 0 : 1);
-      const hiddenDelta = (before.hasActive && !before.allVisible ? 1 : 0) - (after.hasActive && !after.allVisible ? 1 : 0);
-      if (missingDelta !== 0 || hiddenDelta !== 0) {
-        bumpStats({ missing_active: missingDelta, hidden_active: hiddenDelta });
-      }
-      addToast(
-        "success",
-        next
-          ? `${course.course_code} is active — students can see it and sit in.`
-          : `${course.course_code} turned off — hidden from students and closed to sit-ins.`,
-      );
+      await refreshAfterMutation();
+      addToast("success", `${course.course_code} ${next ? "is active" : "turned off"}.`);
     } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "course_rule_source_changed") {
+        await refreshAfterMutation();
+      }
       addToast("error", err instanceof Error ? err.message : "Failed to update");
     } finally {
       setSavingActive((prev) => {
@@ -352,15 +330,15 @@ export function ActiveCoursesSection() {
   }
 
   async function applyBulk(target: boolean) {
-    const ids = [...selection];
+    const ids = [...selection.keys()];
+    const expectedSources = Object.fromEntries([...selection].filter(([, source]) => source));
     if (ids.length === 0) return;
 
     const activeFlips = selectedLoaded.filter((x) => x.course.is_active !== target && x.course.is_active).length;
     if (!target && activeFlips > 0) {
       const confirmed = window.confirm(
         `Turn off ${ids.length} classes?\n\n` +
-          `${activeFlips} of them are active — those classes will be hidden from students ` +
-          `and closed to sit-ins until activated again.`,
+          `${activeFlips} of them are active. Student booking will also close for any courses that share their settings.`,
       );
       if (!confirmed) return;
     }
@@ -369,11 +347,14 @@ export function ActiveCoursesSection() {
     try {
       await apiJson("/api/v1/admin/active-courses/set-active/bulk", {
         method: "PUT",
-        body: JSON.stringify({ course_ids: ids, active: target }),
+        body: JSON.stringify({
+          course_ids: ids,
+          active: target,
+          ...(Object.keys(expectedSources).length > 0 && { expected_rule_course_ids: expectedSources }),
+        }),
       });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: "active" });
-      setSelection(new Set());
-      await loadSubjects(subjectOffset, debouncedSearch, status, sessionDateFilter);
+      setSelection(new Map());
+      await refreshAfterMutation();
       addToast(
         "success",
         target
@@ -381,6 +362,10 @@ export function ActiveCoursesSection() {
           : "Turned off — the selected classes are hidden from students and closed to sit-ins.",
       );
     } catch (err) {
+      if (err instanceof ApiRequestError && err.code === "course_rule_source_changed") {
+        setSelection(new Map());
+        await refreshAfterMutation();
+      }
       addToast("error", err instanceof Error ? err.message : "Bulk update failed");
     } finally {
       setBulkBusy(false);
@@ -394,17 +379,9 @@ export function ActiveCoursesSection() {
     return subjects.filter((s) => !s.courses.some((c) => c.is_active)).length;
   }, [stats, subjects]);
 
-  const hiddenActiveCount = useMemo(() => {
-    if (stats) return stats.hidden_active;
-    return subjects.filter((s) => {
-      const { hasActive, allVisible } = subjectAuditState(s.courses);
-      return hasActive && !allVisible;
-    }).length;
-  }, [stats, subjects]);
-
   const totalSubjectCount = stats?.total_subjects ?? subjects.length;
-  const coveredCount = Math.max(0, totalSubjectCount - missingCount - hiddenActiveCount);
-  const allCovered = coveredCount === totalSubjectCount && hiddenActiveCount === 0;
+  const coveredCount = Math.max(0, totalSubjectCount - missingCount);
+  const allCovered = coveredCount === totalSubjectCount;
 
   if (loading && subjects.length === 0) {
     return <LoadingSkeleton type="card" lines={5} />;
@@ -486,13 +463,7 @@ export function ActiveCoursesSection() {
         {missingCount > 0 && !allCovered ? (
           <span>{missingCount} subject{missingCount === 1 ? "" : "s"} without an active class — students cannot book {missingCount === 1 ? "it" : "them"}.</span>
         ) : null}
-        {hiddenActiveCount > 0 ? (
-          <span>
-            {hiddenActiveCount} subject{hiddenActiveCount === 1 ? "" : "s"}{" "}
-            {hiddenActiveCount === 1 ? "has" : "have"} an active course that is hidden (old data) — toggle
-            {" "}the class off and on to fix.
-          </span>
-        ) : null}
+
       </div>
 
       <div className="flex flex-col gap-2">
@@ -559,7 +530,6 @@ export function ActiveCoursesSection() {
 
       {subjects.map((subject) => {
         const activeCourses = subject.courses.filter((c) => c.is_active);
-        const activeHiddenLegacy = activeCourses.some((c) => c.absence_form_visible === false);
 
         const subjectIds = subject.courses.map((c) => c.course_id);
         const subjectAll = subjectIds.length > 0 && subjectIds.every((id) => selection.has(id));
@@ -583,20 +553,12 @@ export function ActiveCoursesSection() {
                 <span className="text-sm font-semibold text-[var(--color-wi-text)]">
                   {subject.subject_code} — {subject.subject_name}
                 </span>
-                {activeCourses.length > 0 && !activeHiddenLegacy ? (
+                {activeCourses.length > 0 ? (
                   <span
                     className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700"
                     title={activeCourses.length > 1 ? "Parallel active classes — students only see the ones they're enrolled in" : undefined}
                   >
                     {activeCourses.length > 1 ? `Active (${activeCourses.length})` : "Active"}
-                  </span>
-                ) : null}
-                {activeHiddenLegacy ? (
-                  <span
-                    className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                    title="Toggle the hidden active class off and on to fix"
-                  >
-                    Active course hidden
                   </span>
                 ) : null}
                 {activeCourses.length === 0 ? (
@@ -616,7 +578,7 @@ export function ActiveCoursesSection() {
                     courseId={course.course_id}
                     selected={selection.has(course.course_id)}
                     onToggleSelect={toggleCourseSelected}
-                    onToggleActive={(courseId, next) => void toggleActive(subject.subject_id, courseId, next)}
+                    onToggleActive={(courseId, next) => void toggleActive(courseId, next)}
                     saving={savingActive.has(course.course_id)}
                   />
                 ))}
@@ -649,7 +611,7 @@ export function ActiveCoursesSection() {
               ) : null}
             </span>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setSelection(new Set())} disabled={bulkBusy}>
+              <Button variant="ghost" size="sm" onClick={() => setSelection(new Map())} disabled={bulkBusy}>
                 Clear
               </Button>
               <Button

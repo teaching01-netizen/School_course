@@ -82,7 +82,7 @@ func TestSessionsRangeBundleMappedVisibilityAllowsOutOfScopeRank4Target(t *testi
 		if inRoot {
 			courseRoot = rootID
 		}
-		if _, updateErr := tx.Exec(ctx, `UPDATE courses SET subject_id = $1, root_course_group_id = $2, absence_form_visible = $3 WHERE id = $4`, subject.ID, courseRoot, visible, course.ID); updateErr != nil {
+		if _, updateErr := tx.Exec(ctx, `UPDATE courses SET subject_id = $1, root_course_group_id = $2, student_booking_enabled = $3 WHERE id = $4`, subject.ID, courseRoot, visible && active, course.ID); updateErr != nil {
 			t.Fatal(updateErr)
 		}
 		return testCourse{row: course, active: active}
@@ -92,14 +92,6 @@ func TestSessionsRangeBundleMappedVisibilityAllowsOutOfScopeRank4Target(t *testi
 	rank4 := makeCourse("SAT-VIS-RANK4", "SAT Verbal Reading Rank 4", true, true, false)
 	hiddenRank4 := makeCourse("SAT-VIS-HIDDEN-RANK4", "SAT Verbal Reading Rank 4", false, true, false)
 	inactiveRank4 := makeCourse("SAT-VIS-INACTIVE-RANK4", "SAT Verbal Reading Rank 4", true, false, false)
-	for _, course := range []testCourse{source, section1, rank4, hiddenRank4} {
-		if !course.active {
-			continue
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, subject.ID, course.row.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
 	if err := q.CourseStudentAdd(ctx, sqldb.CourseStudentAddParams{CourseID: source.row.ID, StudentID: student.ID}); err != nil {
 		t.Fatal(err)
 	}

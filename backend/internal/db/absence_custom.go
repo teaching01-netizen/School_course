@@ -39,7 +39,7 @@ type StudentSubjectRow struct {
 	MergeGroupName pgtype.Text `json:"merge_group_name"`
 }
 
-// active_course_id is the admin-configured course from subject_active_courses.
+// active_course_id is an effectively active course in the subject.
 // With multiple active courses per subject it is the lowest id for shape
 // stability; consumers display per-course data from session groups instead.
 func (q *Queries) StudentSubjectByWCode(ctx context.Context, wcode string) ([]StudentSubjectRow, error) {
@@ -56,7 +56,7 @@ func (q *Queries) studentSubjectByWCode(ctx context.Context, wcode string, requi
 		       COALESCE(s.email_crm, s.email_system) AS email,
 		       s.email_crm, s.email_system, s.nickname, s.school,
 		       sub.id, sub.code, sub.name,
-		       MIN(sac.course_id::text)::uuid AS active_course_id,
+		       MIN(ac.id::text)::uuid AS active_course_id,
 		       CASE WHEN cardinality(array_remove(array_agg(DISTINCT COALESCE(NULLIF(tu.full_name, ''), tu.username, '')), '')) = 1
 		            THEN (array_remove(array_agg(DISTINCT COALESCE(NULLIF(tu.full_name, ''), tu.username, '')), ''))[1]
 		            ELSE '' END AS active_teacher_name,
@@ -70,11 +70,15 @@ func (q *Queries) studentSubjectByWCode(ctx context.Context, wcode string, requi
 		JOIN course_students cs ON cs.student_id = s.id AND cs.status = 'enrolled'
 		JOIN courses c ON c.id = cs.course_id
 		JOIN subjects sub ON sub.id = c.subject_id
-		LEFT JOIN subject_active_courses sac ON sac.subject_id = sub.id
-		LEFT JOIN courses ac ON ac.id = sac.course_id
-		LEFT JOIN users tu ON tu.id = ac.teacher_id
-		LEFT JOIN course_merge_group_members mm ON mm.course_id = sac.course_id
-		LEFT JOIN course_merge_groups mg ON mg.id = mm.group_id
+		LEFT JOIN LATERAL (
+			SELECT candidate.id, cfg.rule_course_id, cfg.merge_group_id
+			FROM courses candidate
+			JOIN course_rule_configs cfg ON cfg.course_id = candidate.id
+			WHERE candidate.subject_id = sub.id AND cfg.absence_form_active
+		) ac ON true
+		LEFT JOIN courses rule_source ON rule_source.id = ac.rule_course_id
+		LEFT JOIN users tu ON tu.id = rule_source.teacher_id
+		LEFT JOIN course_merge_groups mg ON mg.id = ac.merge_group_id
 		WHERE lower(s.wcode) = lower($1)
 		  AND ($2 = false OR EXISTS (
 			SELECT 1 FROM course_rule_configs cfg

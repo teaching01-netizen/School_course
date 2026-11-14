@@ -35,8 +35,7 @@ import (
 //     institute timezone. The SQL filters absolute instants only.
 //   - Enrollment eligibility: enrolled modes require
 //     course_students(status=enrolled) AND student_is_expected_at_session.
-//   - Student mode additionally requires absence_form_visible AND direct
-//     subject_active_courses membership (single-switch model, no fallback).
+//   - Student mode requires effective booking availability from course_rule_configs.
 //   - Staff mode applies no visibility or active-course predicate.
 //   - All-subjects (special sit-in) mode lists by subject with no enrollment
 //     predicate.
@@ -132,7 +131,7 @@ func (q *Queries) SessionsRangeFacts(ctx context.Context, arg SessionsRangeFacts
 // status='excluded' with a manual override_source), which remain
 // scope-relevant history for the authorized lifetime view.
 // sessionsRangeStudentVisibilitySQL limits student-facing rows to courses whose
-// effective (continuation-source) course is visible and active.
+// effective (continuation-source) course is enabled for student booking.
 const sessionsRangeStudentVisibilitySQL = " AND EXISTS (SELECT 1 FROM course_rule_configs cfg" +
 	" WHERE cfg.course_id = c.id AND cfg.absence_form_active)"
 

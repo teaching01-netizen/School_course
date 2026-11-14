@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"warwick-institute/internal/courseadmin"
 	"warwick-institute/internal/httpapi/httpadapter"
 )
@@ -27,8 +30,7 @@ type teacherAssignmentRequest struct {
 // with a `teachers` key the set is replaced exactly as on PATCH.
 //
 // The curated properties (year, subject_id, hour, student_count, course_type)
-// are optional on both verbs: absent/null leaves the current value untouched,
-// so the detail page can patch a single property per request.
+// are optional on both verbs. An explicit null subject removes the subject.
 type updateCourseRequest struct {
 	ExpectedVersion    int32                       `json:"expected_version"`
 	Code               string                      `json:"code"`
@@ -36,7 +38,7 @@ type updateCourseRequest struct {
 	LegacyCourseID     *string                     `json:"legacy_course_id"`
 	Teachers           *[]teacherAssignmentRequest `json:"teachers"`
 	Year               *int16                      `json:"year"`
-	SubjectID          *string                     `json:"subject_id"`
+	SubjectID          json.RawMessage             `json:"subject_id"`
 	Hour               *int32                      `json:"hour"`
 	StudentCount       *int32                      `json:"student_count"`
 	CourseType         *string                     `json:"course_type"`
@@ -113,17 +115,27 @@ func applyOptionalCourseMetadata(a httpadapter.Adapter, body updateCourseRequest
 	command.Hour = body.Hour
 	command.StudentCount = body.StudentCount
 	command.CourseType = body.CourseType
-	command.AbsenceFormVisible = body.AbsenceFormVisible
-	if body.SubjectID != nil {
-		sid, err := a.ParseUUID(*body.SubjectID)
+	if body.AbsenceFormVisible != nil {
+		return &courseadmin.Error{
+			Code:    "course_booking_managed_in_operations",
+			Message: "Manage student booking in Operations → Active Courses.",
+		}
+	}
+	if len(body.SubjectID) != 0 {
+		var raw *string
+		if err := json.Unmarshal(body.SubjectID, &raw); err != nil {
+			return &courseadmin.Error{Code: "invalid_subject", Message: "Invalid subject ID."}
+		}
+		if raw == nil {
+			command.SubjectID = &pgtype.UUID{}
+			return nil
+		}
+		sid, err := a.ParseUUID(*raw)
 		if err != nil {
 			return &courseadmin.Error{
 				Code:    "invalid_subject",
 				Message: "Subject not found.",
-				Details: map[string]any{
-					"subject_id": *body.SubjectID,
-					"reason":     "invalid_id",
-				},
+				Details: map[string]any{"subject_id": *raw, "reason": "invalid_id"},
 			}
 		}
 		command.SubjectID = &sid

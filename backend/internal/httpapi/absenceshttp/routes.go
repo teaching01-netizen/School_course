@@ -665,24 +665,60 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, status, code, msg)
 			return 0, nil, err
 		}
-		// Hard gate: a course hidden from the absence form cannot be booked by
-		// students even via a hand-crafted request. Staff submitting on a
-		// student's behalf keep full access.
-		availableToStudents, availabilityErr := courseAvailableToStudents(r.Context(), qtx, course.CourseID)
-		if availabilityErr != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking course availability")
-			return 0, nil, availabilityErr
+		var sitInCourseID pgtype.UUID
+		if sitInMethod.Valid && body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
+			sitInCourseID, err = s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
+			if err != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
+				return 0, nil, err
+			}
+		} else if sitInMethod.String == "physical" {
+			sitInCourseID = course.CourseID
 		}
-		if !adminRequest && !availableToStudents {
-			s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
-			return 0, nil, fmt.Errorf("course %s is hidden from the absence form", course.CourseID)
-		}
-		// Step-9 F1: course-before-student (matches schedulelock global order:
-		// courses, students, ...). The course row freezes merge scope + roster
-		// membership; the student row then serializes same-student submissions.
-		if err := lockCourseForMergeScope(r.Context(), qtx, course.CourseID); err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock course absence scope")
+		missedUUIDs, err := parseUUIDStrings(body.MissedSessionIDs)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
 			return 0, nil, err
+		}
+		submittedSessions := append(append([]pgtype.UUID(nil), missedUUIDs...), sessionUUIDs...)
+		var bookingCourses map[pgtype.UUID]bool
+		if adminRequest {
+			if err := lockCourseForMergeScope(r.Context(), qtx, course.CourseID); err != nil {
+				s.writeBookingScopeError(w, err)
+				return 0, nil, err
+			}
+		} else {
+			ids := []pgtype.UUID{course.CourseID}
+			if sitInCourseID.Valid && sitInCourseID != course.CourseID {
+				ids = append(ids, sitInCourseID)
+			}
+			bookingCourses, err = lockStudentBookingCourses(r.Context(), qtx, tx, ids, submittedSessions)
+			if err != nil {
+				s.writeBookingScopeError(w, err)
+				return 0, nil, err
+			}
+			// Validate the selected subject and enrollment again after waiting.
+			lockedCourseID := course.CourseID.String()
+			_, subjectID, course, err = s.resolveAbsenceSelection(r.Context(), qtx, tx, body.Wcode, &body.SubjectID, &lockedCourseID)
+			if err != nil {
+				s.a.WriteErr(w, http.StatusBadRequest, "bad_selection", "The course selection changed. Refresh the form and try again.")
+				return 0, nil, err
+			}
+			for i, id := range ids {
+				available, err := courseAvailableToStudents(r.Context(), qtx, id)
+				if err != nil {
+					s.writeBookingScopeError(w, err)
+					return 0, nil, err
+				}
+				if !available {
+					if i == 0 {
+						s.a.WriteErr(w, http.StatusForbidden, "course_not_available", "This class is not available in the absence form")
+					} else {
+						s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_inactive", "That class is not active for students and cannot be sat in")
+					}
+					return 0, nil, fmt.Errorf("course %s is unavailable to students", id.String())
+				}
+			}
 		}
 		if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock student absence submission")
@@ -695,10 +731,15 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not check sit-in session availability")
 			return 0, nil, err
 		}
-		missedUUIDs, err := parseUUIDStrings(body.MissedSessionIDs)
-		if err != nil {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
-			return 0, nil, err
+		if !adminRequest {
+			if err := lockSessionsForSubmission(r.Context(), qtx, submittedSessions); err != nil {
+				s.writeBookingScopeError(w, err)
+				return 0, nil, err
+			}
+			if err := validateStudentBookingSessions(r.Context(), qtx, bookingCourses, submittedSessions); err != nil {
+				s.writeBookingScopeError(w, err)
+				return 0, nil, err
+			}
 		}
 		limitStats, candidateAbsenceDays, err := projectedAbsenceDayStats(
 			r.Context(), qtx, body.Wcode, course.CourseID, missedUUIDs, dateFrom, dateTo, settings.Form.AbsenceLimitPercent, s.deps.InstituteTZ,
@@ -714,28 +755,6 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 		if limitStats.ProjectedLimitExceeded {
 			s.a.WriteErr(w, http.StatusForbidden, "absence_limit_exceeded", "You have reached the maximum number of absence days allowed for this course")
 			return 0, nil, fmt.Errorf("absence day limit exceeded for course %s", course.CourseID)
-		}
-
-		var sitInCourseID pgtype.UUID
-		if sitInMethod.Valid && body.SitInCourseID != nil && strings.TrimSpace(*body.SitInCourseID) != "" {
-			sitInCourseID, err = s.a.ParseUUID(strings.TrimSpace(*body.SitInCourseID))
-			if err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "bad_sit_in_course_id", "Invalid sit-in course")
-				return 0, nil, err
-			}
-			if !adminRequest {
-				availableToStudents, availabilityErr := courseAvailableToStudents(r.Context(), qtx, sitInCourseID)
-				if availabilityErr != nil {
-					s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Error checking sit-in course availability")
-					return 0, nil, availabilityErr
-				}
-				if !availableToStudents {
-					s.a.WriteErr(w, http.StatusBadRequest, "sit_in_course_inactive", "That class is not active for students and cannot be sat in")
-					return 0, nil, fmt.Errorf("sit-in course %s is not available to students", sitInCourseID)
-				}
-			}
-		} else if sitInMethod.String == "physical" {
-			sitInCourseID = course.CourseID
 		}
 
 		var studentPhone pgtype.Text

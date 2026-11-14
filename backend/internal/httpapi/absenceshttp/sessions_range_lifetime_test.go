@@ -38,7 +38,7 @@ const lifetimeInsertStudent = `INSERT INTO students (wcode, full_name) VALUES ($
 const lifetimeSelectStudentID = `SELECT id FROM students WHERE wcode=$1`
 const lifetimeInsertSubject = `INSERT INTO subjects (code, name) VALUES ($1, $2) RETURNING id`
 const lifetimeInsertCourse = `INSERT INTO courses (code, name, subject_id, level, absence_form_visible) VALUES ($1, $2, $3, 2, true) RETURNING id`
-const lifetimeLinkActive = `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`
+const lifetimeLinkActive = `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`
 const lifetimeEnroll = `INSERT INTO course_students (course_id, student_id, status) VALUES ($1, $2, 'enrolled')`
 const lifetimeInsertTeacher = `INSERT INTO users (username, role, password_hash) VALUES ($1, 'Teacher', 'x') RETURNING id`
 const lifetimeInsertRoom = `INSERT INTO rooms (name) VALUES ($1) RETURNING id`

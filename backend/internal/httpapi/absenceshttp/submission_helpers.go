@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"warwick-institute/internal/absences"
@@ -90,35 +91,118 @@ func setAbsenceMergeGroupIDOnly(ctx context.Context, q *sqldb.Queries, absenceID
 	return q.AbsenceSetMergeGroupID(ctx, absenceID, scope.ID)
 }
 
-// lockBatchCourseSet collects every distinct course_id across batch items and
-// locks them in immutable-ID order BEFORE item 1 (Step-9 G1). Batch items
-// carry course_id as a raw string; unparseable entries are skipped here and
-// rejected per item later with the specific bad_course_id error - pre-locking
-// must not change validation semantics, only lock acquisition order.
-func lockBatchCourseSet(ctx context.Context, q *sqldb.Queries, items []batchAbsenceCreateItem) error {
-	seen := make(map[[16]byte]struct{}, len(items))
-	courseIDs := make([]pgtype.UUID, 0, len(items))
-	for _, item := range items {
-		raw := strings.TrimSpace(item.CourseID)
-		if raw == "" {
-			continue
+var (
+	errBookingScopeChanged    = errors.New("course booking scope changed while acquiring locks")
+	errBookingSessionInactive = errors.New("a selected session's course is closed for student booking")
+)
+
+// Lock the requested courses and their rule sources as a single ordered set.
+// A savepoint lets a topology change release that set before retrying.
+func lockStudentBookingCourses(ctx context.Context, q *sqldb.Queries, tx pgx.Tx, courseIDs, sessionIDs []pgtype.UUID) (map[pgtype.UUID]bool, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		ids := append([]pgtype.UUID(nil), courseIDs...)
+		if len(sessionIDs) > 0 {
+			sessionCourses, err := q.BookingSessionCourseIDs(ctx, sessionIDs)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, sessionCourses...)
 		}
-		id, err := uuid.Parse(raw)
+		targets, err := q.CourseBookingTargets(ctx, ids)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		pgID := pgtype.UUID{Bytes: id, Valid: true}
-		if _, ok := seen[pgID.Bytes]; ok {
-			continue
+		toLock := append([]pgtype.UUID(nil), ids...)
+		for _, target := range targets {
+			toLock = append(toLock, target.SourceID)
 		}
-		seen[pgID.Bytes] = struct{}{}
-		courseIDs = append(courseIDs, pgID)
+		savepoint, err := tx.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		work := q.WithTx(savepoint)
+		locked, err := work.CoursesLockOrdered(ctx, toLock)
+		lockedIDs := make(map[pgtype.UUID]bool, len(locked))
+		for _, course := range locked {
+			lockedIDs[course] = true
+		}
+		if err == nil {
+			var current []sqldb.CourseBookingTarget
+			current, err = work.CourseBookingTargets(ctx, ids)
+			if err == nil {
+				for _, course := range current {
+					if !lockedIDs[course.SourceID] {
+						err = errBookingScopeChanged
+						break
+					}
+				}
+			}
+		}
+		if err == nil {
+			return lockedIDs, savepoint.Commit(ctx)
+		}
+		if rollbackErr := savepoint.Rollback(ctx); rollbackErr != nil {
+			return nil, errors.Join(err, rollbackErr)
+		}
+		var pgErr *pgconn.PgError
+		if !errors.Is(err, errBookingScopeChanged) && !(errors.As(err, &pgErr) && pgErr.Code == "40P01") {
+			return nil, err
+		}
 	}
-	if len(courseIDs) == 0 {
+	return nil, errBookingScopeChanged
+}
+
+// Check the actual session courses after locking the session rows. A session
+// moved since the initial course lookup must be selected again by the student.
+func validateStudentBookingSessions(ctx context.Context, q *sqldb.Queries, lockedCourses map[pgtype.UUID]bool, ids []pgtype.UUID) error {
+	if len(ids) == 0 {
 		return nil
 	}
-	_, err := q.CourseMergeGroupLockCourses(ctx, courseIDs)
-	return err
+	courses, err := q.BookingSessionCourseIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	targets, err := q.CourseBookingTargets(ctx, courses)
+	if err != nil {
+		return err
+	}
+	for _, course := range targets {
+		if !lockedCourses[course.CourseID] || !lockedCourses[course.SourceID] {
+			return errBookingScopeChanged
+		}
+		if !course.SourceEnabled {
+			return errBookingSessionInactive
+		}
+	}
+	return nil
+}
+
+func (s *server) writeBookingScopeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errBookingScopeChanged) {
+		s.a.WriteErr(w, http.StatusServiceUnavailable, "retry_exhausted", "Course availability changed. Please retry.")
+		return
+	}
+	if errors.Is(err, errBookingSessionInactive) {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "A selected session is no longer available for student booking. Refresh the form and select again.")
+		return
+	}
+	status, code, message := s.a.ClassifyDBErr(err)
+	s.a.WriteErr(w, status, code, message)
+}
+
+func batchBookingCourseIDs(items []batchAbsenceCreateItem) []pgtype.UUID {
+	ids := make([]pgtype.UUID, 0, len(items))
+	for _, item := range items {
+		if id, err := uuid.Parse(strings.TrimSpace(item.CourseID)); err == nil {
+			ids = append(ids, pgtype.UUID{Bytes: id, Valid: true})
+		}
+		if item.SitInMethod != nil && item.SitInCourseID != nil {
+			if id, err := uuid.Parse(strings.TrimSpace(*item.SitInCourseID)); err == nil {
+				ids = append(ids, pgtype.UUID{Bytes: id, Valid: true})
+			}
+		}
+	}
+	return ids
 }
 
 func parseUUIDStrings(values []string) ([]pgtype.UUID, error) {

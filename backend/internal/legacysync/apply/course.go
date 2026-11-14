@@ -207,6 +207,9 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	if err := a.hitFault("after_subject_mapping_resolution"); err != nil {
 		return ScheduleApplyResult{}, err
 	}
+	if err := qtx.LockCourseBookingWrites(ctx); err != nil {
+		return ScheduleApplyResult{}, err
+	}
 	// Wrap updateCourse in a SAVEPOINT to handle code collisions gracefully.
 	if _, err := tx.Exec(ctx, `SAVEPOINT course_update`); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("savepoint course update: %w", err)
@@ -386,7 +389,7 @@ func (a *CourseApplier) updateCourse(ctx context.Context, tx pgx.Tx, request Cou
 	}
 	studentCount := len(request.Aggregate.Attendees)
 	status := strings.ToLower(strings.TrimSpace(course.Status))
-	result, err := tx.Exec(ctx, `UPDATE courses SET code=COALESCE(NULLIF($1,''), code), name=COALESCE(NULLIF($2,''), name), teacher_id=NULLIF($3::text,'')::uuid, subject_id=NULLIF($4::text,'')::uuid, hour=NULLIF($5,0), student_count=CASE WHEN $6 THEN $7 ELSE student_count END, course_type=NULLIF($8,''), legacy_status=NULLIF($9,''), legacy_expire_date=NULLIF($10,'')::date, legacy_archived=($9='archived'), legacy_source_hash=$11, legacy_last_seen_at=$12, legacy_last_synced_at=$12, source_kind='legacy', updated_at=now() WHERE id=$13`, course.Code, course.Name, uuidText(teacherID), uuidText(subjectID), hour, request.Aggregate.Attendees != nil, studentCount, course.Type, status, course.ExpireDate, sourceHash, request.ObservedAt, request.CourseID)
+	result, err := tx.Exec(ctx, `UPDATE courses SET code=COALESCE(NULLIF($1,''), code), name=COALESCE(NULLIF($2,''), name), teacher_id=NULLIF($3::text,'')::uuid, subject_id=NULLIF($4::text,'')::uuid, student_booking_enabled=student_booking_enabled AND NULLIF($4::text,'') IS NOT NULL, hour=NULLIF($5,0), student_count=CASE WHEN $6 THEN $7 ELSE student_count END, course_type=NULLIF($8,''), legacy_status=NULLIF($9,''), legacy_expire_date=NULLIF($10,'')::date, legacy_archived=($9='archived'), legacy_source_hash=$11, legacy_last_seen_at=$12, legacy_last_synced_at=$12, source_kind='legacy', updated_at=now() WHERE id=$13`, course.Code, course.Name, uuidText(teacherID), uuidText(subjectID), hour, request.Aggregate.Attendees != nil, studentCount, course.Type, status, course.ExpireDate, sourceHash, request.ObservedAt, request.CourseID)
 	if err != nil {
 		return fmt.Errorf("update legacy course %s: %w", request.LegacyCourseID, err)
 	}

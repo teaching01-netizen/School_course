@@ -145,12 +145,12 @@ func TestPostgresStore_ClaimsAbsenceFormActiveCourseFirst(t *testing.T) {
 	`, "QUEUE-ACTIVE-"+suffix, "Active queue course", subjectID, activeLegacyID).Scan(&activeCourseID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)`, subjectID, activeCourseID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subjectID, activeCourseID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
-		_, _ = pool.Exec(cleanupCtx, `DELETE FROM subject_active_courses WHERE subject_id = $1`, subjectID)
+		_, _ = pool.Exec(cleanupCtx, `UPDATE courses SET student_booking_enabled = false WHERE subject_id = $1`, subjectID)
 		_, _ = pool.Exec(cleanupCtx, `DELETE FROM courses WHERE id = $1`, activeCourseID)
 		_, _ = pool.Exec(cleanupCtx, `DELETE FROM subjects WHERE id = $1`, subjectID)
 	})

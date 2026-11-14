@@ -37,7 +37,7 @@ func setAbsenceFormVisible(t *testing.T, dbpool *pgxpool.Pool, courseID uuid.UUI
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if _, err := dbpool.Exec(ctx, `
-		UPDATE courses SET absence_form_visible = $2 WHERE id = $1
+		UPDATE courses SET student_booking_enabled = $2 WHERE id = $1
 	`, courseID, visible); err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +230,79 @@ func TestStudentProfileExcludesInactiveEnrolledSubjects(t *testing.T) {
 	}
 }
 
+func TestStudentSubmissionChecksAvailabilityAfterCourseLock(t *testing.T) {
+	databaseURL := requireTestDBPending(t)
+	migrateUpOncePending(t, databaseURL)
+	pool := newPoolPending(t, databaseURL)
+	t.Cleanup(pool.Close)
+	mux := selfServiceMux(t, pool)
+	seed := seedActiveCourseFixture(t, pool)
+	token := seedVerifiedStudentSession(t, pool, seed.wcode)
+	course := seed.courses["current"]
+	source := seed.courses["sibling"]
+	ensureCourseAbsenceHeadroom(t, pool, course)
+	session, date := pickCourseSessionDate(t, pool, course, "Asia/Bangkok")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	var group uuid.UUID
+	if err := pool.QueryRow(ctx, `INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id`, seed.suffix).Scan(&group); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO course_merge_group_members (group_id, course_id, position) VALUES ($1, $2, 1), ($1, $3, 2)`, group, source, course); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE course_merge_groups SET rule_source_course_id = $2 WHERE id = $1`, group, source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE id = $1`, source); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var blocker int32
+	if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blocker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE courses SET student_booking_enabled = false WHERE id = $1`, source); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		result <- postSelfService(t, mux, "/api/v1/absences", token, map[string]any{
+			"reason": "Medical appointment", "subject_id": seed.subjID.String(), "course_id": course.String(),
+			"date_from": date, "date_to": date, "missed_session_ids": []string{session},
+		})
+	}()
+	for {
+		var blocked bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))`, blocker).Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		select {
+		case response := <-result:
+			t.Fatalf("submission completed before waiting for the course lock: %d %s", response.Code, response.Body)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-result:
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "course_not_available") {
+			t.Fatalf("submission after Off = %d %s", response.Code, response.Body)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}
+
 func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 	databaseURL := requireTestDBPending(t)
 	migrateUpOncePending(t, databaseURL)
@@ -256,7 +329,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		rows, err := dbpool.Query(ctx, sessionsInRangeStaffSelectSQL(),
-			seed.wcode, time.Now().UTC().AddDate(0, 0, -30), time.Now().UTC().AddDate(0, 0, 90))
+			seed.wcode, time.Now().UTC().AddDate(0, 0, -30), time.Now().UTC().AddDate(0, 0, 90), "Asia/Bangkok")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -340,6 +413,7 @@ func TestAbsenceFormHiddenCourseGate(t *testing.T) {
 				"date_to":            localDate,
 				"missed_session_ids": []string{sessionID},
 				"sit_in_course_id":   seed.courses["sibling"].String(),
+				"sit_in_method":      "physical",
 			}},
 		})
 		if recorder.Code != http.StatusBadRequest {
@@ -385,7 +459,9 @@ func TestInactiveCourseCannotPassStudentGatesWhenVisibilityIsStale(t *testing.T)
 	rawToken := seedVerifiedStudentSession(t, dbpool, seed.wcode)
 	setActiveCourseRow(t, dbpool, seed.subjID, seed.courses["old"])
 	t.Cleanup(func() { clearActiveCourseRow(t, dbpool, seed.subjID) })
-	setAbsenceFormVisible(t, dbpool, seed.courses["current"], true)
+	if _, err := dbpool.Exec(context.Background(), `UPDATE courses SET absence_form_visible = true WHERE id = $1`, seed.courses["current"]); err != nil {
+		t.Fatal(err)
+	}
 
 	codes, _ := querySessionCourseCodes(t, dbpool, seed.wcode)
 	if codes[seed.code("current")] {
@@ -424,6 +500,7 @@ func TestInactiveCourseCannotPassStudentGatesWhenVisibilityIsStale(t *testing.T)
 			"date_to":            oldDate,
 			"missed_session_ids": []string{sessionID},
 			"sit_in_course_id":   seed.courses["current"].String(),
+			"sit_in_method":      "physical",
 		}},
 	})
 	if recorder.Code != http.StatusBadRequest {

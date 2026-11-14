@@ -74,8 +74,7 @@ func TestResolveMappedSatVerbalSitIn_MergedMissedCourseOffersNonMergedTarget(t *
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		VALUES ($1, $2), ($1, $3), ($1, $4)
+		UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id IN ($2, $3, $4)
 	`, subject.ID, mergedA.ID, mergedB.ID, standalone.ID); err != nil {
 		t.Fatal(err)
 	}

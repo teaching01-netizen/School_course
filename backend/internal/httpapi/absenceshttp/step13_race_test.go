@@ -211,7 +211,7 @@ func TestBatch_OppositeOrderNoDeadlock(t *testing.T) {
 			entered <- struct{}{}
 			<-release
 			items := []batchAbsenceCreateItem{{CourseID: first}, {CourseID: second}}
-			if err := lockBatchCourseSet(cctx, q.WithTx(tx), items); err != nil {
+			if _, err := lockStudentBookingCourses(cctx, q.WithTx(tx), tx, batchBookingCourseIDs(items), nil); err != nil {
 				results <- err
 				return
 			}

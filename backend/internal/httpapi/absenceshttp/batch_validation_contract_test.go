@@ -97,7 +97,7 @@ func newPublicAbsenceContractFixture(t *testing.T) *publicAbsenceContractFixture
 		t.Fatalf("link unrelated course to subject: %v", err)
 	}
 	// Sit-in targets must be active for students (course_rule_configs.absence_form_active).
-	if _, err := pool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)`, unrelatedSubject.ID, unrelatedCourse.ID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, unrelatedSubject.ID, unrelatedCourse.ID); err != nil {
 		t.Fatalf("activate unrelated course: %v", err)
 	}
 

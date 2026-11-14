@@ -86,7 +86,7 @@ func seedAbsenceLimitTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Po
 		t.Fatal(err)
 	}
 	if _, err := dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
+		UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2
 	`, subj.ID, course.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +599,7 @@ func seedBatchNotifTestData(t *testing.T, q *sqldb.Queries, dbpool *pgxpool.Pool
 		t.Fatal(err)
 	}
 	if _, err := dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
+		UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2
 	`, subj.ID, course.ID); err != nil {
 		t.Fatal(err)
 	}

@@ -110,6 +110,9 @@ func (s *Service) CreateTx(ctx context.Context, qtx *sqldb.Queries, command Crea
 		}
 	}
 
+	if err := qtx.LockCourseBookingWrites(ctx); err != nil {
+		return CreateResult{}, err
+	}
 	courses, err := qtx.CourseMergeGroupLockCourses(ctx, command.CourseIDs)
 	if err != nil {
 		return CreateResult{}, err
@@ -188,6 +191,13 @@ func (s *Service) CreateTx(ctx context.Context, qtx *sqldb.Queries, command Crea
 		if err := qtx.CourseMergeGroupSetRuleSource(ctx, group.ID, command.RuleSourceCourseID); err != nil {
 			return CreateResult{}, err
 		}
+		for _, courseID := range command.CourseIDs {
+			if courseID != command.RuleSourceCourseID {
+				if err := qtx.SetCourseBookingEnabled(ctx, []pgtype.UUID{courseID}, false); err != nil {
+					return CreateResult{}, err
+				}
+			}
+		}
 		auditPayload["rule_source_course_id"] = command.RuleSourceCourseID.String()
 	}
 	if suggestionEvidence != nil {
@@ -249,6 +259,9 @@ func (s *Service) UpdateNameTx(ctx context.Context, qtx *sqldb.Queries, command 
 }
 
 func (s *Service) DeleteTx(ctx context.Context, qtx *sqldb.Queries, command DeleteCommand) (DeleteResult, error) {
+	if err := qtx.LockCourseBookingWrites(ctx); err != nil {
+		return DeleteResult{}, err
+	}
 	group, err := qtx.CourseMergeGroupGet(ctx, command.GroupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DeleteResult{}, &Error{Code: "not_found", Message: "Merged course not found."}

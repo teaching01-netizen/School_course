@@ -170,6 +170,29 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			return 0, nil, err
 		}
 
+		var submittedSessions []pgtype.UUID
+		for _, item := range body.Items {
+			missed, _ := parseUUIDStrings(item.MissedSessionIDs)
+			sitIns, _ := parseUUIDStrings(item.SitInSessionIDs)
+			submittedSessions = append(submittedSessions, missed...)
+			submittedSessions = append(submittedSessions, sitIns...)
+		}
+		bookingCourses, err := lockStudentBookingCourses(r.Context(), qtx, tx, batchBookingCourseIDs(body.Items), submittedSessions)
+		if err != nil {
+			s.writeBookingScopeError(w, err)
+			return 0, nil, err
+		}
+
+		student, err := qtx.StudentGetByWCode(r.Context(), body.Wcode)
+		if err != nil {
+			s.writeBookingScopeError(w, err)
+			return 0, nil, err
+		}
+		if err := qtx.LockStudentForAbsenceSubmission(r.Context(), student.ID); err != nil {
+			s.writeBookingScopeError(w, err)
+			return 0, nil, err
+		}
+
 		var studentPhone pgtype.Text
 		var studentEmail pgtype.Text
 		var studentEmailCRM pgtype.Text
@@ -217,14 +240,8 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		// Step-9 G1: pre-lock the FULL course set across items, sorted, before
-		// processing item 1. Per-item locks in request order let two opposite-order
-		// batches AB-BA deadlock; one upfront ordered acquisition cannot.
-		// (Student row: single student for the whole batch, locked per item as
-		// before - same row, no order issue. Session rows: fenced inside the
-		// snapshot fns per item, leaf-order, no earlier-category lock follows.)
-		if err := lockBatchCourseSet(r.Context(), qtx, body.Items); err != nil {
-			s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not lock batch course scope")
+		if err := lockSessionsForSubmission(r.Context(), qtx, submittedSessions); err != nil {
+			s.writeBookingScopeError(w, err)
 			return 0, nil, err
 		}
 
@@ -235,6 +252,11 @@ func (s *server) handleAbsenceBatchCreate(w http.ResponseWriter, r *http.Request
 				return 0, nil, fmt.Errorf("failed to create absence item")
 			}
 			created = append(created, record)
+		}
+
+		if err := validateStudentBookingSessions(r.Context(), qtx, bookingCourses, submittedSessions); err != nil {
+			s.writeBookingScopeError(w, err)
+			return 0, nil, err
 		}
 
 		// Burn the verification: one OTP + session per submission.

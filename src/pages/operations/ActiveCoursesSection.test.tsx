@@ -88,25 +88,29 @@ describe("ActiveCoursesSection — one Active switch per class", () => {
     expect(screen.getAllByText("Off").length).toBeGreaterThan(0);
   });
 
-  it("flags legacy hidden active classes so they can be healed", async () => {
-    mockApiJson.mockImplementation(() =>
-      Promise.resolve({
-        subjects: [
-          subject({
-            courses: [
-              { course_id: "c-active", course_code: "MATH-101", course_name: "Math", cycle_id: "cy1", cycle_label: "Cycle 1", is_active: true, absence_form_visible: false },
-            ],
-          }),
-        ],
-        total_subjects: 1,
-      }),
-    );
+  it("shows a continuation follower's state with its source", async () => {
+    mockApiJson.mockResolvedValue({
+      subjects: [subject({
+        courses: [{
+          course_id: "c-off", course_code: "MATH-102", course_name: "Math",
+          cycle_id: "", cycle_label: "", is_active: true, absence_form_visible: true,
+          rule_course_id: "c-active", rule_course_code: "MATH-101",
+        }],
+      })],
+      total_subjects: 1,
+    });
     renderSection();
-    expect(await screen.findByText("Active — hidden from form")).toBeInTheDocument();
-    expect(screen.getByText(/active course that is hidden/i)).toBeInTheDocument();
+    expect(await screen.findByText("Follows MATH-101")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "MATH-102 active" })).not.toBeInTheDocument();
   });
 
   it("activates a class with one click and leaves siblings untouched", async () => {
+    mockApiJson.mockResolvedValueOnce(defaultResponse())
+      .mockResolvedValueOnce({ status: "ok" })
+      .mockResolvedValueOnce({
+        ...defaultResponse(),
+        subjects: [subject({ courses: subject().courses.map((course) => ({ ...course, is_active: true })) })],
+      });
     renderSection();
     await screen.findByText("MATH — Mathematics");
 

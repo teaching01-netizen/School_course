@@ -112,6 +112,30 @@ func TestCourseApply_CommitsAggregateMetadataTogether(t *testing.T) {
 	}
 }
 
+func TestCourseApplyDisablesBookingWhenSubjectIsRemoved(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `UPDATE courses SET student_booking_enabled = true WHERE id = $1`, courseID); err != nil {
+		t.Fatal(err)
+	}
+	request.Aggregate.Course.SubjectID = ""
+	if _, err := applier.Apply(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	var hasSubject, bookable bool
+	if err := pool.QueryRow(t.Context(), `SELECT c.subject_id IS NOT NULL, cfg.absence_form_active
+		FROM courses c JOIN course_rule_configs cfg ON cfg.course_id = c.id WHERE c.id = $1`, courseID).Scan(&hasSubject, &bookable); err != nil {
+		t.Fatal(err)
+	}
+	if hasSubject || bookable {
+		t.Fatal("removing the subject must turn student booking Off")
+	}
+}
+
 func TestCourseApply_IdenticalHashIsCompleteNoOp(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	sqldb "warwick-institute/internal/db"
 	"warwick-institute/internal/httpapi/httpadapter"
@@ -19,10 +21,6 @@ import (
 type server struct {
 	deps httpdeps.Deps
 	a    httpadapter.Adapter
-}
-
-func (s *server) publishCourseUpdated(id string) {
-	s.publishCourseUpdates([]string{id})
 }
 
 func (s *server) publishCourseUpdates(ids []string) {
@@ -53,6 +51,8 @@ type courseDTO struct {
 	CycleLabel         string  `json:"cycle_label"`
 	IsActive           bool    `json:"is_active"`
 	AbsenceFormVisible bool    `json:"absence_form_visible"`
+	RuleCourseID       string  `json:"rule_course_id"`
+	RuleCourseCode     string  `json:"rule_course_code"`
 	MergeGroupName     *string `json:"merge_group_name,omitempty"`
 }
 
@@ -87,7 +87,15 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 		limit, offset, paginated = 50, 0, true
 	}
 	if paginated {
-		subjects, coursesBySubject, totalSubjects, totalCourses, err := s.deps.Q.ActiveCoursesListPaginated(r.Context(), sqldb.ActiveCoursesListParams{
+		ctx := r.Context()
+		tx, err := s.deps.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		if err != nil {
+			s.err(w, err)
+			return
+		}
+		defer tx.Rollback(ctx)
+		qtx := s.deps.Q.WithTx(tx)
+		subjects, coursesBySubject, totalSubjects, totalCourses, err := qtx.ActiveCoursesListPaginated(ctx, sqldb.ActiveCoursesListParams{
 			Limit: limit, Offset: offset, Search: search, Status: statusFilter,
 			SessionDateFrom: sessionDateFrom, SessionDateTo: sessionDateTo, InstituteTZ: s.deps.InstituteTZ,
 		})
@@ -95,8 +103,12 @@ func (s *server) handleList(w http.ResponseWriter, r *http.Request) {
 			s.err(w, err)
 			return
 		}
-		stats, err := s.deps.Q.ActiveCoursesStats(r.Context())
+		stats, err := qtx.ActiveCoursesStats(ctx)
 		if err != nil {
+			s.err(w, err)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
 			s.err(w, err)
 			return
 		}
@@ -155,6 +167,10 @@ func outSubjectDTOs(s *server, subjects []sqldb.ActiveCourseSubjectRow, coursesB
 				name := c.MergeGroupName.String
 				mergeGroupName = &name
 			}
+			ruleCourseID, err := s.a.UUIDString(c.RuleCourseID)
+			if err != nil {
+				return nil, err
+			}
 			courseDTOs = append(courseDTOs, courseDTO{
 				CourseID:           cID,
 				CourseCode:         c.CourseCode,
@@ -164,6 +180,8 @@ func outSubjectDTOs(s *server, subjects []sqldb.ActiveCourseSubjectRow, coursesB
 				IsActive:           c.IsActive,
 				AbsenceFormVisible: c.AbsenceFormVisible,
 				MergeGroupName:     mergeGroupName,
+				RuleCourseID:       ruleCourseID,
+				RuleCourseCode:     c.RuleCourseCode.String,
 			})
 		}
 		out = append(out, subjectDTO{
@@ -224,186 +242,200 @@ func parseListFilters(query url.Values) (string, string, error) {
 	}
 }
 
-// handleSet is the CourseLevels single-picker endpoint: the chosen course
-// becomes the subject's only active class, replacing any previously active
-// ones. For additive multi-active control the operations console uses
-// PUT /set-active and /set-active/bulk instead.
-func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.a.MustAdmin(w, r)
-	if !ok {
-		return
-	}
-
-	var body struct {
-		SubjectID string `json:"subject_id"`
-		CourseID  string `json:"course_id"`
-	}
-	if err := s.a.DecodeJSON(w, r, &body); err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
-		return
-	}
-
-	subjectID, err := s.a.ParseUUID(body.SubjectID)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_id", "Invalid subject_id")
-		return
-	}
-	courseID, err := s.a.ParseUUID(body.CourseID)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
-		return
-	}
-
-	s.a.WithIdempotentTxPostCommit(w, r, user.ID, "active-courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
-		qtx := s.deps.Q.WithTx(tx)
-		courseSubjectID, found, err := qtx.CourseSubjectID(r.Context(), courseID)
-		if err != nil {
-			s.err(w, err)
-			return 0, nil, err
-		} else if !found {
-			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Course not found")
-			return 0, nil, fmt.Errorf("set active course: course %s not found", courseID.String())
-		} else if courseSubjectID.Bytes != subjectID.Bytes {
-			s.a.WriteErr(w, http.StatusBadRequest, "course_subject_mismatch",
-				"Course does not belong to this subject")
-			return 0, nil, fmt.Errorf("set active course: course %s belongs to a different subject", courseID.String())
-		}
-		// Single-picker semantics for the CourseLevels panel: the chosen course
-		// becomes the subject's only active class, replacing any others.
-		if err := qtx.ActiveCourseClearBySubject(r.Context(), subjectID); err != nil {
-			s.err(w, err)
-			return 0, nil, err
-		}
-		if _, err := qtx.ActiveCourseSetBulk(r.Context(), []string{courseID.String()}); err != nil {
-			s.err(w, err)
-			return 0, nil, err
-		}
-		return http.StatusOK, map[string]string{"status": "ok"}, nil
-	}, func(http.ResponseWriter) {
-		s.publishCourseUpdated(courseID.String())
-	})
-}
-
 const bulkActiveMaxCourses = 200
 
-// handleSetActive is the operations console's switch: active means the class is
-// visible in the student absence form and eligible for sit-ins; inactive means
-// hidden and no sit-ins. A subject may run several active classes at once —
-// toggling one class never changes its siblings. Staff booking is not affected.
-func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.a.MustAdmin(w, r)
-	if !ok {
-		return
-	}
-
-	var body struct {
-		CourseID string `json:"course_id"`
-		Active   *bool  `json:"active"`
-	}
-	if err := s.a.DecodeJSON(w, r, &body); err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
-		return
-	}
-	courseID, err := s.a.ParseUUID(body.CourseID)
-	if err != nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
-		return
-	}
-	if body.Active == nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_active", "active must be true or false")
-		return
-	}
-
-	s.a.WithIdempotentTxPostCommit(w, r, user.ID, "active-courses-set-active", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
-		qtx := s.deps.Q.WithTx(tx)
-		if _, found, err := qtx.CourseSubjectID(r.Context(), courseID); err != nil {
-			s.err(w, err)
-			return 0, nil, err
-		} else if !found {
-			s.a.WriteErr(w, http.StatusNotFound, "not_found", "Course not found")
-			return 0, nil, fmt.Errorf("set-active: course %s not found", courseID.String())
-		}
-		ids := []string{courseID.String()}
-		var err error
-		if *body.Active {
-			_, err = qtx.ActiveCourseSetBulk(r.Context(), ids)
-		} else {
-			_, err = qtx.ActiveCourseClearBulk(r.Context(), ids)
-		}
-		if err != nil {
-			s.err(w, err)
-			return 0, nil, err
-		}
-		return http.StatusOK, map[string]string{"status": "ok"}, nil
-	}, func(http.ResponseWriter) {
-		s.publishCourseUpdated(courseID.String())
-	})
+type setActiveRequest struct {
+	CourseID              string            `json:"course_id"`
+	CourseIDs             []string          `json:"course_ids"`
+	SubjectID             string            `json:"subject_id"`
+	Active                *bool             `json:"active"`
+	ExpectedRuleCourseIDs map[string]string `json:"expected_rule_course_ids"`
 }
 
-// handleSetActiveBulk applies the same switch to many courses at once:
-// activating turns every selected class on (subjects keep as many actives as
-// selected), deactivating turns every selected class off. The response reports
-// how many courses had their state re-derived, siblings included.
+type bookingChange struct {
+	SourceID string `json:"source_id"`
+	Before   bool   `json:"before"`
+	After    bool   `json:"after"`
+}
+
+func (s *server) handleSet(w http.ResponseWriter, r *http.Request) {
+	s.setBooking(w, r, "active-courses", true, false)
+}
+
+func (s *server) handleSetActive(w http.ResponseWriter, r *http.Request) {
+	s.setBooking(w, r, "active-courses-set-active", false, false)
+}
+
 func (s *server) handleSetActiveBulk(w http.ResponseWriter, r *http.Request) {
+	s.setBooking(w, r, "active-courses-set-active-bulk", false, true)
+}
+
+func (s *server) setBooking(w http.ResponseWriter, r *http.Request, scope string, replace, bulk bool) {
 	user, ok := s.a.MustAdmin(w, r)
 	if !ok {
 		return
 	}
-
-	var body struct {
-		CourseIDs []string `json:"course_ids"`
-		Active    *bool    `json:"active"`
-	}
+	var body setActiveRequest
 	if err := s.a.DecodeJSON(w, r, &body); err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "bad_json", "Invalid JSON")
 		return
 	}
-	if body.Active == nil {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_active", "active must be true or false")
-		return
-	}
-	if len(body.CourseIDs) == 0 {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids", "course_ids must contain at least one course")
-		return
-	}
-	if len(body.CourseIDs) > bulkActiveMaxCourses {
-		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids",
-			fmt.Sprintf("course_ids is limited to %d courses per bulk action", bulkActiveMaxCourses))
-		return
-	}
-	seen := make(map[string]struct{}, len(body.CourseIDs))
-	ids := make([]string, 0, len(body.CourseIDs))
-	for _, raw := range body.CourseIDs {
-		if _, err := s.a.ParseUUID(raw); err != nil {
-			s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", fmt.Sprintf("Invalid course_id: %s", raw))
+	var subjectID pgtype.UUID
+	active := true
+	if replace {
+		var err error
+		subjectID, err = s.a.ParseUUID(body.SubjectID)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_subject_id", "Invalid subject_id")
 			return
 		}
-		if _, dup := seen[raw]; dup {
-			continue
+	} else if body.Active == nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_active", "active must be true or false")
+		return
+	} else {
+		active = *body.Active
+	}
+	rawIDs := body.CourseIDs
+	if !bulk {
+		rawIDs = []string{body.CourseID}
+	}
+	if len(rawIDs) == 0 || len(rawIDs) > bulkActiveMaxCourses {
+		s.a.WriteErr(w, http.StatusBadRequest, "bad_course_ids", "Select between 1 and 200 courses")
+		return
+	}
+	ids := make([]pgtype.UUID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := s.a.ParseUUID(raw)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_course_id", "Invalid course_id")
+			return
 		}
-		seen[raw] = struct{}{}
-		ids = append(ids, raw)
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b pgtype.UUID) int { return strings.Compare(a.String(), b.String()) })
+	ids = slices.Compact(ids)
+	expectedSources := make(map[pgtype.UUID]pgtype.UUID, len(body.ExpectedRuleCourseIDs))
+	for course, source := range body.ExpectedRuleCourseIDs {
+		courseID, courseErr := s.a.ParseUUID(course)
+		sourceID, sourceErr := s.a.ParseUUID(source)
+		if courseErr != nil || sourceErr != nil || !slices.Contains(ids, courseID) {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_rule_source_precondition", "Provide a rule source ID for a selected course")
+			return
+		}
+		if prior, exists := expectedSources[courseID]; exists && prior != sourceID {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_rule_source_precondition", "A course has conflicting rule source IDs")
+			return
+		}
+		expectedSources[courseID] = sourceID
 	}
 
-	s.a.WithIdempotentTxPostCommit(w, r, user.ID, "active-courses-set-active-bulk", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+	var affected []string
+	s.a.WithRetryableIdempotentTx(w, r, user.ID, scope, s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
+		ctx := r.Context()
 		qtx := s.deps.Q.WithTx(tx)
-		var updated int64
-		var err error
-		if *body.Active {
-			updated, err = qtx.ActiveCourseSetBulk(r.Context(), ids)
-		} else {
-			updated, err = qtx.ActiveCourseClearBulk(r.Context(), ids)
-		}
-		if err != nil {
-			s.err(w, err)
+		if err := qtx.LockCourseBookingWrites(ctx); err != nil {
 			return 0, nil, err
 		}
-		if updated == 0 {
-			s.a.WriteErr(w, http.StatusNotFound, "not_found", "No matching courses")
-			return 0, nil, fmt.Errorf("set-active bulk: no courses matched %d ids", len(ids))
+		targets, err := qtx.CourseBookingTargets(ctx, ids)
+		if err != nil {
+			return 0, nil, err
 		}
-		return http.StatusOK, map[string]int64{"updated": updated}, nil
-	}, func(http.ResponseWriter) {
-		s.publishCourseUpdates(ids)
-	})
+		byID := make(map[pgtype.UUID]sqldb.CourseBookingTarget, len(targets))
+		for _, target := range targets {
+			byID[target.CourseID] = target
+		}
+		reject := func(status int, code, message string, courseIDs []string) (int, any, error) {
+			return status, map[string]any{"code": code, "message": message, "course_ids": courseIDs}, fmt.Errorf("%s", code)
+		}
+		var missing, subjectless, stale []string
+		sourceStates := make(map[pgtype.UUID]bool)
+		for _, id := range ids {
+			target, exists := byID[id]
+			if !exists {
+				missing = append(missing, id.String())
+				continue
+			}
+			if expected, ok := expectedSources[id]; ok && expected != target.SourceID {
+				stale = append(stale, id.String())
+			}
+			if active && !target.SourceSubjectID.Valid {
+				subjectless = append(subjectless, id.String())
+			}
+			if replace && (target.SubjectID != subjectID || target.SourceSubjectID != subjectID) {
+				return reject(http.StatusBadRequest, "course_subject_mismatch", "Course and rule source must belong to this subject", []string{id.String()})
+			}
+			sourceStates[target.SourceID] = target.SourceEnabled
+		}
+		if len(missing) > 0 {
+			return reject(http.StatusNotFound, "course_not_found", "Course not found", missing)
+		}
+		if len(stale) > 0 {
+			return reject(http.StatusConflict, "course_rule_source_changed", "Course settings changed. Refresh the list and try again.", stale)
+		}
+		if len(subjectless) > 0 {
+			return reject(http.StatusUnprocessableEntity, "course_subject_required", "Assign the rule source to a subject before turning it on", subjectless)
+		}
+		var enable, disable, sources []pgtype.UUID
+		for id, before := range sourceStates {
+			sources = append(sources, id)
+			if before != active {
+				if active {
+					enable = append(enable, id)
+				} else {
+					disable = append(disable, id)
+				}
+			}
+		}
+		if replace {
+			others, err := qtx.EnabledBookingCoursesBySubject(ctx, subjectID)
+			if err != nil {
+				return 0, nil, err
+			}
+			for _, id := range others {
+				if _, selected := sourceStates[id]; !selected {
+					disable = append(disable, id)
+					sources = append(sources, id)
+				}
+			}
+		}
+		if _, err := qtx.CoursesLockOrdered(ctx, sources); err != nil {
+			return 0, nil, err
+		}
+		if err := qtx.SetCourseBookingEnabled(ctx, enable, true); err != nil {
+			return 0, nil, err
+		}
+		if err := qtx.SetCourseBookingEnabled(ctx, disable, false); err != nil {
+			return 0, nil, err
+		}
+		changed := make([]bookingChange, 0, len(enable)+len(disable))
+		for _, id := range enable {
+			changed = append(changed, bookingChange{id.String(), false, true})
+		}
+		for _, id := range disable {
+			changed = append(changed, bookingChange{id.String(), true, false})
+		}
+		slices.SortFunc(changed, func(a, b bookingChange) int { return strings.Compare(a.SourceID, b.SourceID) })
+		if len(changed) > 0 {
+			if _, err := qtx.AuditInsert(ctx, sqldb.AuditInsertParams{
+				ActorUserID: pgtype.UUID{Bytes: user.ID, Valid: true},
+				Action:      "course.student_booking_updated",
+				Payload:     map[string]any{"scope": scope, "changes": changed},
+			}); err != nil {
+				return 0, nil, err
+			}
+		}
+		affected, err = qtx.CourseBookingAffectedIDs(ctx, sources)
+		if err != nil {
+			return 0, nil, err
+		}
+		sourceIDs := make([]string, 0, len(sources))
+		for _, id := range sources {
+			sourceIDs = append(sourceIDs, id.String())
+		}
+		slices.Sort(sourceIDs)
+		return http.StatusOK, map[string]any{
+			"status": "ok", "updated": len(changed), "active": active,
+			"source_ids": sourceIDs, "affected_course_ids": affected, "changes": changed,
+		}, nil
+	}, func() { s.publishCourseUpdates(affected) })
 }

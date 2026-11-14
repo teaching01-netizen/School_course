@@ -50,7 +50,7 @@ func seedEndpointFixture(t *testing.T, dbpool *pgxpool.Pool) (staffTarget, stude
     if err := dbpool.QueryRow(ctx, `INSERT INTO courses (code, name, subject_id, level, absence_form_visible) VALUES ($1, $2, $3, 2, true) RETURNING id`, fmt.Sprintf("EP-%s-%d", suffix, i), "Ep course", subj).Scan(&id); err != nil {
       t.Fatal(err)
     }
-    if _, err := dbpool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`, subj, id); err != nil {
+    if _, err := dbpool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subj, id); err != nil {
       t.Fatal(err)
     }
     return id

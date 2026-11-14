@@ -41,7 +41,7 @@ func TestBundleVisibilityIncludesDirectMappedCoursesAndKeepsVisibilityGates(t *t
 		if createErr != nil {
 			t.Fatal(createErr)
 		}
-		if _, updateErr := tx.Exec(ctx, `UPDATE courses SET subject_id = $1, absence_form_visible = $2 WHERE id = $3`, subject.ID, visible, course.ID); updateErr != nil {
+		if _, updateErr := tx.Exec(ctx, `UPDATE courses SET subject_id = $1, student_booking_enabled = $2 WHERE id = $3`, subject.ID, visible, course.ID); updateErr != nil {
 			t.Fatal(updateErr)
 		}
 		return course
@@ -49,10 +49,7 @@ func TestBundleVisibilityIncludesDirectMappedCoursesAndKeepsVisibilityGates(t *t
 	scope := makeCourse("SCOPE", true)
 	visibleTarget := makeCourse("VISIBLE", true)
 	hiddenTarget := makeCourse("HIDDEN", false)
-	inactiveTarget := makeCourse("INACTIVE", true)
-	if _, err := tx.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2), ($1, $3), ($1, $4)`, subject.ID, scope.ID, visibleTarget.ID, hiddenTarget.ID); err != nil {
-		t.Fatal(err)
-	}
+	inactiveTarget := makeCourse("INACTIVE", false)
 
 	out := &SitInBundleV2{
 		RulesByID:    make(map[string]*SitInRule),

@@ -233,9 +233,6 @@ func TestFullChain_ManualSitInUsesTargetSubjectPolicy(t *testing.T) {
 			if _, err := f.pool.Exec(ctx, "UPDATE courses SET subject_id = $1 WHERE id = $2", targetSubject.ID, f.targetCourseID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := f.pool.Exec(ctx, "UPDATE subject_active_courses SET subject_id = $1 WHERE course_id = $2", targetSubject.ID, f.targetCourseID); err != nil {
-				t.Fatal(err)
-			}
 			t.Cleanup(func() {
 				_, err := f.pool.Exec(ctx, "DELETE FROM sat_verbal_policy_mappings WHERE rule_id IN ($1, $2)", "manual-source-"+f.courseID, "manual-target-"+f.targetCourseID)
 				if err != nil {
@@ -392,7 +389,7 @@ func TestFullChain_FinalSessionsKeepStudentValidation(t *testing.T) {
 			case "deleted":
 				_, err = f.pool.Exec(ctx, "UPDATE sessions SET deleted_at = now() WHERE id = $1", f.finalID)
 			case "hidden":
-				_, err = f.pool.Exec(ctx, "UPDATE courses SET absence_form_visible = false WHERE id = $1", f.targetCourseID)
+				_, err = f.pool.Exec(ctx, "UPDATE courses SET student_booking_enabled = false WHERE id = $1", f.targetCourseID)
 			case "overlap":
 				teacher, createErr := f.q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "overlap-" + f.courseID, Role: "Teacher", PasswordHash: "x"})
 				if createErr != nil {
@@ -665,8 +662,7 @@ func seedFinalSessionFixture(t *testing.T) finalSessionFixture {
 		t.Fatal(err)
 	}
 	if _, err := dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		VALUES ($1, $2), ($1, $3)
+		UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id IN ($2, $3)
 	`, subject.ID, missedCourse.ID, targetCourse.ID); err != nil {
 		t.Fatal(err)
 	}

@@ -49,7 +49,7 @@ func seedPlanFixture(t *testing.T, pool *pgxpool.Pool) (wcode, from, to string) 
     if err := pool.QueryRow(ctx, `INSERT INTO courses (code, name, subject_id, level, absence_form_visible) VALUES ($1, $2, $3, 2, true) RETURNING id`, fmt.Sprintf("%s-%s-%d", code, suffix, i), "Plan course", subj).Scan(&id); err != nil {
       t.Fatal(err)
     }
-    if _, err := pool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`, subj, id); err != nil {
+    if _, err := pool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subj, id); err != nil {
       t.Fatal(err)
     }
     if _, err := pool.Exec(ctx, `INSERT INTO course_students (course_id, student_id, status) VALUES ($1, $2, 'enrolled')`, id, studentID); err != nil {

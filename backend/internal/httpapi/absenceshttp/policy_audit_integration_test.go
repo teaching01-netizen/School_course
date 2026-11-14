@@ -61,7 +61,7 @@ func seedPolicyAudit(t *testing.T) policyAuditFixture {
 	scan(&f.root, `INSERT INTO root_course_groups(name) VALUES($1) RETURNING id`, f.wcode+"-root")
 	newCourse := func(dst *pgtype.UUID, subject pgtype.UUID, level int, root pgtype.UUID) {
 		scan(dst, `INSERT INTO courses(code,name,subject_id,level,root_course_group_id) VALUES($1,$1,$2,$3,$4) RETURNING id`, f.wcode+"-"+uuid.NewString()[:8], subject, level, root)
-		exec(`INSERT INTO subject_active_courses(subject_id,course_id) VALUES($1,$2)`, subject, *dst)
+		exec(`UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subject, *dst)
 	}
 	newCourse(&f.missed, f.subject, 2, f.root)
 	newCourse(&f.target, f.subject, 3, f.root)
@@ -144,7 +144,7 @@ func TestPolicyAuditV2KeepsAuthoritativeBlockers(t *testing.T) {
 				now = f.day.Add(-12 * time.Hour)
 			}
 			if kind == "hidden_expected_class" {
-				if _, err := f.tx.Exec(context.Background(), `UPDATE courses SET absence_form_visible=false WHERE id=$1`, f.sibling); err != nil {
+				if _, err := f.tx.Exec(context.Background(), `UPDATE courses SET student_booking_enabled=false WHERE id=$1`, f.sibling); err != nil {
 					t.Fatal(err)
 				}
 			}

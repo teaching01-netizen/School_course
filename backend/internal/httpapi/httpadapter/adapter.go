@@ -499,6 +499,24 @@ func (a Adapter) WithSerializableIdempotentTx(
 	q *sqldb.Queries,
 	fn func(tx pgx.Tx) (int, any, error),
 ) bool {
+	return a.withRetryableIdempotentTx(w, r, userID, scope, pool, q, pgx.Serializable, fn, nil)
+}
+
+// WithRetryableIdempotentTx uses Read Committed and retries a whole transaction
+// after a deadlock or serialization failure. The callback returns errors
+// without writing to the response; afterCommit runs only on a fresh commit.
+func (a Adapter) WithRetryableIdempotentTx(
+	w http.ResponseWriter, r *http.Request, userID uuid.UUID, scope string,
+	pool txBeginner, q *sqldb.Queries, fn func(pgx.Tx) (int, any, error), afterCommit func(),
+) bool {
+	return a.withRetryableIdempotentTx(w, r, userID, scope, pool, q, pgx.ReadCommitted, fn, afterCommit)
+}
+
+func (a Adapter) withRetryableIdempotentTx(
+	w http.ResponseWriter, r *http.Request, userID uuid.UUID, scope string,
+	pool txBeginner, q *sqldb.Queries, isolation pgx.TxIsoLevel,
+	fn func(pgx.Tx) (int, any, error), afterCommit func(),
+) bool {
 	key, ok := a.RequireIdempotencyKey(w, r)
 	if !ok {
 		return false
@@ -513,10 +531,29 @@ func (a Adapter) WithSerializableIdempotentTx(
 	fingerprint := idempotency.NewRequestFingerprint(r.Method, r.URL, bodyBytes)
 	expiry := idempotency.DefaultUIExpiry()
 
+	retry := func(err error, attempt int) bool {
+		if !isRetryableError(err) {
+			return false
+		}
+		if attempt == maxSerializableAttempts-1 {
+			return isolation == pgx.ReadCommitted
+		}
+		a.log.Warn("transaction retry",
+			"event", "schedule_transaction_retry", "scope", scope,
+			"attempt", attempt+1, "pg_code", extractPGCode(err))
+		TxRetriesTotal.Add(1)
+		timer := time.NewTimer(retryDelay(attempt))
+		defer timer.Stop()
+		select {
+		case <-r.Context().Done():
+		case <-timer.C:
+		}
+		return true
+	}
 	for attempt := range maxSerializableAttempts {
-		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.Serializable})
+		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: isolation})
 		if err != nil {
-			a.log.Error("serializable idempotent tx: begin failed", "error", err)
+			a.log.Error("retryable idempotent tx: begin failed", "error", err)
 			a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return false
 		}
@@ -533,28 +570,25 @@ func (a Adapter) WithSerializableIdempotentTx(
 		isNew, cached, err := idempotency.Acquire(r.Context(), qtx, userID, scope, key, fingerprint, expiry)
 		if err != nil {
 			rollback()
-			if isRetryableError(err) && attempt < maxSerializableAttempts-1 {
-				a.log.Warn("serializable tx retry",
-					"event", "schedule_transaction_retry",
-					"scope", scope, "attempt", attempt+1,
-					"pg_code", extractPGCode(err),
-				)
-				TxRetriesTotal.Add(1)
-				time.Sleep(retryDelay(attempt))
+			if retry(err, attempt) {
 				continue
 			}
 			if a.HandleIdempotencyErr(w, err) {
 				return false
 			}
-			a.log.Error("serializable idempotent tx: acquire failed", "error", err)
+			a.log.Error("retryable idempotent tx: acquire failed", "error", err)
 			a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return false
 		}
 
 		if !isNew && cached != nil && cached.StatusCode == nil {
-			rollback()
-			if _, delErr := qtx.IdempotencyDeleteStale(r.Context(), pgtype.UUID{Bytes: userID, Valid: true}, scope, key); delErr != nil {
-				a.log.Error("serializable idempotent tx: delete stale record failed", "error", delErr)
+			_, delErr := qtx.IdempotencyDeleteStale(r.Context(), pgtype.UUID{Bytes: userID, Valid: true}, scope, key)
+			if delErr == nil {
+				delErr = tx.Commit(r.Context())
+			}
+			if delErr != nil {
+				rollback()
+				a.log.Error("retryable idempotent tx: delete stale record failed", "error", delErr)
 			}
 			a.WriteErr(w, http.StatusConflict, "stale_idempotency_record",
 				fmt.Sprintf("stale idempotency record for key %q; retry with a new idempotency key", key))
@@ -570,14 +604,7 @@ func (a Adapter) WithSerializableIdempotentTx(
 		statusCode, resp, fnErr := fn(tx)
 		if fnErr != nil {
 			rollback()
-			if isRetryableError(fnErr) && attempt < maxSerializableAttempts-1 {
-				a.log.Warn("serializable tx retry",
-					"event", "schedule_transaction_retry",
-					"scope", scope, "attempt", attempt+1,
-					"pg_code", extractPGCode(fnErr),
-				)
-				TxRetriesTotal.Add(1)
-				time.Sleep(retryDelay(attempt))
+			if retry(fnErr, attempt) {
 				continue
 			}
 			a.writeSerializableError(w, fnErr, statusCode, resp)
@@ -587,17 +614,10 @@ func (a Adapter) WithSerializableIdempotentTx(
 		qtx2 := q.WithTx(tx)
 		if err := idempotency.Complete(r.Context(), qtx2, userID, scope, key, statusCode, resp, expiry); err != nil {
 			rollback()
-			if isRetryableError(err) && attempt < maxSerializableAttempts-1 {
-				a.log.Warn("serializable tx retry",
-					"event", "schedule_transaction_retry",
-					"scope", scope, "attempt", attempt+1,
-					"pg_code", extractPGCode(err),
-				)
-				TxRetriesTotal.Add(1)
-				time.Sleep(retryDelay(attempt))
+			if retry(err, attempt) {
 				continue
 			}
-			a.log.Error("serializable idempotent tx: complete failed", "error", err)
+			a.log.Error("retryable idempotent tx: complete failed", "error", err)
 			a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return false
 		}
@@ -607,41 +627,30 @@ func (a Adapter) WithSerializableIdempotentTx(
 		_, completed, err := idempotency.Acquire(r.Context(), qtx2, userID, scope, key, fingerprint, expiry)
 		if err != nil || completed == nil || completed.StatusCode == nil || len(completed.ResponseBody) == 0 {
 			rollback()
-			if completed == nil || len(completed.ResponseBody) == 0 {
+			if err == nil {
 				err = fmt.Errorf("incomplete idempotency record")
 			}
-			if isRetryableError(err) && attempt < maxSerializableAttempts-1 {
-				a.log.Warn("serializable tx retry",
-					"event", "schedule_transaction_retry",
-					"scope", scope, "attempt", attempt+1,
-					"pg_code", extractPGCode(err),
-				)
-				TxRetriesTotal.Add(1)
-				time.Sleep(retryDelay(attempt))
+			if retry(err, attempt) {
 				continue
 			}
-			a.log.Error("serializable idempotent tx: read completed response failed", "error", err)
+			a.log.Error("retryable idempotent tx: read completed response failed", "error", err)
 			a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return false
 		}
 
 		if err := tx.Commit(r.Context()); err != nil {
 			rollback()
-			if isRetryableError(err) && attempt < maxSerializableAttempts-1 {
-				a.log.Warn("serializable tx retry",
-					"event", "schedule_transaction_retry",
-					"scope", scope, "attempt", attempt+1,
-					"pg_code", extractPGCode(err),
-				)
-				TxRetriesTotal.Add(1)
-				time.Sleep(retryDelay(attempt))
+			if retry(err, attempt) {
 				continue
 			}
-			a.log.Error("serializable idempotent tx: commit failed", "error", err)
+			a.log.Error("retryable idempotent tx: commit failed", "error", err)
 			a.WriteErr(w, http.StatusInternalServerError, "internal", "Internal error")
 			return false
 		}
 
+		if afterCommit != nil {
+			afterCommit()
+		}
 		a.writeRawJSON(w, statusCode, completed.ResponseBody)
 		return true
 	}

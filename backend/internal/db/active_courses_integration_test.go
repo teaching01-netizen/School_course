@@ -133,11 +133,11 @@ func TestActiveCoursesList_MultipleSubjectsWithCourses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = q.db.Exec(ctx, "INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)", subjA.ID, cA2.ID)
+	_, err = q.db.Exec(ctx, "UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2", subjA.ID, cA2.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = q.db.Exec(ctx, "INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)", subjB.ID, cB1.ID)
+	_, err = q.db.Exec(ctx, "UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2", subjB.ID, cB1.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

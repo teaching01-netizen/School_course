@@ -1047,6 +1047,13 @@ func (s *server) handleCoursesUpdate(w http.ResponseWriter, r *http.Request) {
 	if s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
 		if command.ExpectedVersion <= 0 {
+			if command.SubjectID != nil {
+				if err := qtx.LockCourseBookingWrites(r.Context()); err != nil {
+					status, code, message := s.a.ClassifyDBErr(err)
+					s.a.WriteErr(w, status, code, message)
+					return 0, nil, err
+				}
+			}
 			// Legacy clients don't send expected_version. Read the current
 			// version under the row lock inside this same transaction and use
 			// it as the precondition: the lock is held by this transaction, so
@@ -1094,6 +1101,11 @@ func (s *server) handleCoursesDelete(w http.ResponseWriter, r *http.Request) {
 	s.deps.Log.Debug("deleting course", "course_id", r.PathValue("id"))
 	if !s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		if err := qtx.LockCourseBookingWrites(r.Context()); err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return 0, nil, err
+		}
 		if err := qtx.CourseDelete(r.Context(), id); err != nil {
 			s.deps.Log.Error("course_delete failed", "error", err, "course_id", r.PathValue("id"))
 			status, code, msg := s.a.ClassifyDBErr(err)
@@ -1272,6 +1284,16 @@ func (s *server) handleCoursesBatchDelete(w http.ResponseWriter, r *http.Request
 	var succeededIDs []string
 	if !s.a.WithIdempotentTx(w, r, user.ID, "courses", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
+		if err := qtx.LockCourseBookingWrites(r.Context()); err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return 0, nil, err
+		}
+		if _, err := qtx.CoursesLockOrdered(r.Context(), ids); err != nil {
+			status, code, message := s.a.ClassifyDBErr(err)
+			s.a.WriteErr(w, status, code, message)
+			return 0, nil, err
+		}
 		results := qtx.CourseBatchDelete(r.Context(), ids)
 
 		succeeded := make([]string, 0, len(results))

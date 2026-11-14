@@ -72,7 +72,7 @@ func seedWorkloadWorld(t *testing.T, dbpool *pgxpool.Pool) workloadWorld {
   if err := dbpool.QueryRow(ctx, `INSERT INTO courses (code, name, subject_id, level, absence_form_visible) VALUES ($1, $2, $3, 2, true) RETURNING id`, "WL-C-"+suffix, "Wl course", subj).Scan(&course); err != nil {
     t.Fatal(err)
   }
-  if _, err := dbpool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`, subj, course); err != nil {
+  if _, err := dbpool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subj, course); err != nil {
     t.Fatal(err)
   }
   if _, err := dbpool.Exec(ctx, `INSERT INTO course_students (course_id, student_id, status) VALUES ($1, $2, 'enrolled')`, course, studentID); err != nil {

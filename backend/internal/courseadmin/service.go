@@ -43,6 +43,11 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 		}
 	}
 
+	if command.SubjectID != nil {
+		if err := qtx.LockCourseBookingWrites(ctx); err != nil {
+			return UpdateCourseResult{}, err
+		}
+	}
 	lockedCourse, err := qtx.CourseLockForTeacherUpdate(ctx, command.CourseID)
 	if err != nil {
 		return UpdateCourseResult{}, classifyCourseReadError(err)
@@ -72,7 +77,7 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 	if mergeErr != nil {
 		return UpdateCourseResult{}, mergeErr
 	}
-	if command.SubjectID != nil {
+	if command.SubjectID != nil && command.SubjectID.Valid {
 		exists, existsErr := qtx.SubjectExists(ctx, *command.SubjectID)
 		if existsErr != nil {
 			return UpdateCourseResult{}, fmt.Errorf("check subject existence: %w", existsErr)
@@ -108,9 +113,6 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 		}
 		if err := qtx.CourseLifecycleUpdate(ctx, command.CourseID, sqldb.CourseLifecycleChanges{ExpirySet: command.ExpirySet, ExpiryDays: command.ExpiryDays, CycleSet: command.CycleSet, CycleID: command.CycleID}); err != nil {
 			return UpdateCourseResult{}, classifyCourseWriteError(fmt.Errorf("update course lifecycle: %w", err))
-		}
-		if _, err := qtx.CourseAbsenceFormVisibleUpdate(ctx, command.CourseID, command.AbsenceFormVisible); err != nil {
-			return UpdateCourseResult{}, classifyCourseWriteError(fmt.Errorf("update course absence-form visibility: %w", err))
 		}
 		return UpdateCourseResult{CourseID: command.CourseID, Version: updated.Version}, nil
 	}
@@ -176,9 +178,6 @@ func (s *Service) UpdateCourseTx(ctx context.Context, qtx *sqldb.Queries, comman
 	}
 	if err := qtx.CourseLifecycleUpdate(ctx, command.CourseID, sqldb.CourseLifecycleChanges{ExpirySet: command.ExpirySet, ExpiryDays: command.ExpiryDays, CycleSet: command.CycleSet, CycleID: command.CycleID}); err != nil {
 		return UpdateCourseResult{}, classifyCourseWriteError(fmt.Errorf("update course lifecycle: %w", err))
-	}
-	if _, err := qtx.CourseAbsenceFormVisibleUpdate(ctx, command.CourseID, command.AbsenceFormVisible); err != nil {
-		return UpdateCourseResult{}, classifyCourseWriteError(fmt.Errorf("update course absence-form visibility: %w", err))
 	}
 
 	if err := insertCourseAudit(ctx, qtx, command, existing, updated.Version); err != nil {

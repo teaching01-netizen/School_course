@@ -428,7 +428,7 @@ export default function CourseLinkSuggestionsPanel({ onLinked }: CourseLinkSugge
               </div>
               {item.confidence === "high" && response.confirmation_enabled ? (
                 <p id={consequenceID} className="mt-3 text-xs leading-5 text-[var(--color-wi-text-light)]">
-                  Linking shares enrollment and absence rules. Once absences use the link, it cannot be unlinked through this screen.
+                  Linking shares enrollment and absence rules. Both courses will use {item.configured_source.code}’s student booking setting. Once absences use the link, it cannot be unlinked through this screen.
                 </p>
               ) : null}
             </article>

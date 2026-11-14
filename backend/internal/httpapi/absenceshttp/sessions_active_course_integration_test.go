@@ -130,9 +130,7 @@ func setActiveCourseRow(t *testing.T, dbpool *pgxpool.Pool, subjID, courseID uui
 func addActiveCourseRow(t *testing.T, dbpool *pgxpool.Pool, subjID, courseID uuid.UUID) {
 	t.Helper()
 	if _, err := dbpool.Exec(context.Background(), `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		VALUES ($1, $2)
-		ON CONFLICT (subject_id, course_id) DO UPDATE SET updated_at = now()
+		UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2
 	`, subjID, courseID); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +139,7 @@ func addActiveCourseRow(t *testing.T, dbpool *pgxpool.Pool, subjID, courseID uui
 func clearActiveCourseRow(t *testing.T, dbpool *pgxpool.Pool, subjID uuid.UUID) {
 	t.Helper()
 	if _, err := dbpool.Exec(context.Background(), `
-		DELETE FROM subject_active_courses WHERE subject_id = $1
+		UPDATE courses SET student_booking_enabled = false WHERE subject_id = $1
 	`, subjID); err != nil {
 		t.Fatal(err)
 	}

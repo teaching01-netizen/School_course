@@ -106,9 +106,7 @@ func TestStudentSubjectByWCode_ActiveCourseFilter(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := dbpool.Exec(ctx, `
-			INSERT INTO subject_active_courses (subject_id, course_id)
-			VALUES ($1, $2)
-			ON CONFLICT (subject_id, course_id) DO UPDATE SET updated_at = now()
+			UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2
 		`, subj.ID, activeCourse.ID); err != nil {
 			t.Fatal(err)
 		}

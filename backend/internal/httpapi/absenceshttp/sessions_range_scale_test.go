@@ -116,7 +116,7 @@ func seedScaleWorld(t *testing.T, dbpool *pgxpool.Pool, n int) scaleWorld {
 			t.Fatal(err)
 		}
 		courseIDs = append(courseIDs, course)
-		if _, err := dbpool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`, subj, course); err != nil {
+		if _, err := dbpool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subj, course); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -328,7 +328,7 @@ func TestSessionsRangeV2_MappedScaleConstancy(t *testing.T) {
 			cancel()
 			t.Fatal(err)
 		}
-		if _, err := basepool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`, subj, home); err != nil {
+		if _, err := basepool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, subj, home); err != nil {
 			cancel()
 			t.Fatal(err)
 		}
@@ -393,7 +393,6 @@ func TestSessionsRangeV2_MappedScaleConstancy(t *testing.T) {
 			_, _ = basepool.Exec(cctx, `DELETE FROM course_merge_groups WHERE name LIKE 'mg-mapscale-' || $1 || '%'`, suffix)
 			_, _ = basepool.Exec(cctx, `DELETE FROM sat_verbal_policy_mappings WHERE rule_id LIKE 'ms-map-%' || $1 || '%'`, suffix)
 			_, _ = basepool.Exec(cctx, `DELETE FROM course_students WHERE course_id IN (SELECT id FROM courses WHERE code LIKE '%-' || $1)`, suffix)
-			_, _ = basepool.Exec(cctx, `DELETE FROM subject_active_courses WHERE course_id IN (SELECT id FROM courses WHERE code LIKE '%-' || $1)`, suffix)
 			_, _ = basepool.Exec(cctx, `DELETE FROM courses WHERE code LIKE '%-' || $1`, suffix)
 			_, _ = basepool.Exec(cctx, `DELETE FROM subjects WHERE code = 'MS-' || $1`, suffix)
 		})

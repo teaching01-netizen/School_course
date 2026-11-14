@@ -136,7 +136,7 @@ func seedParentVerificationTestData(t *testing.T, dbpool *pgxpool.Pool, q *sqldb
 		t.Fatal(err)
 	}
 	if _, err := dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
+		UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2
 	`, subject.ID, courseID); err != nil {
 		t.Fatal(err)
 	}

@@ -103,7 +103,7 @@ export default function MergeCourseForm({ name, onNameChange, courseIDs, onCours
               ))}
               {sourceCourse ? (
                 <p className="text-xs text-[var(--color-wi-text-light)]">
-                  Both IDs will use {sourceCourse.code}'s level, course family, cycle ({sourceCourse.cycle_label || "none"}) and sit-in rule, read live. Nothing is copied.
+                  Both IDs will use {sourceCourse.code}'s level, course family, cycle ({sourceCourse.cycle_label || "none"}) sit-in rule, and student booking setting.
                 </p>
               ) : null}
             </fieldset>

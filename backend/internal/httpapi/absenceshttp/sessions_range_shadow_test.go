@@ -111,13 +111,10 @@ func seedShadowWorld(t *testing.T, dbpool *pgxpool.Pool) shadowWorld {
 		if root != nil {
 			rootVal = *root
 		}
-		if err := dbpool.QueryRow(ctx, `INSERT INTO courses (code, name, subject_id, level, root_course_group_id, absence_form_visible) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, code+"-"+suffix, "Course "+code, subj, level, rootVal, visible).Scan(&id); err != nil {
+		if err := dbpool.QueryRow(ctx, `INSERT INTO courses (code, name, subject_id, level, root_course_group_id, student_booking_enabled) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`, code+"-"+suffix, "Course "+code, subj, level, rootVal, visible).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := dbpool.Exec(ctx, `INSERT INTO course_students (course_id, student_id, status) VALUES ($1, $2, 'enrolled')`, id, studentID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := dbpool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2) ON CONFLICT (subject_id, course_id) DO NOTHING`, subj, id); err != nil {
 			t.Fatal(err)
 		}
 		return id
@@ -379,7 +376,7 @@ func TestStaffStudentViewFiltersInactiveSitInCandidatesLikePublic(t *testing.T) 
 	dbpool := newPoolPending(t, databaseURL)
 	t.Cleanup(dbpool.Close)
 	world := seedShadowWorld(t, dbpool)
-	if _, err := dbpool.Exec(context.Background(), `DELETE FROM subject_active_courses WHERE course_id = $1`, world.candidateCourseID); err != nil {
+	if _, err := dbpool.Exec(context.Background(), `UPDATE courses SET student_booking_enabled = false WHERE id = $1`, world.candidateCourseID); err != nil {
 		t.Fatal(err)
 	}
 	dateFrom := time.Now().UTC().AddDate(0, 0, 6).Format("2006-01-02")

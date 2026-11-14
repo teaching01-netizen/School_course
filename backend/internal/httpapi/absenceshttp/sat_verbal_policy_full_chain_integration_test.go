@@ -130,7 +130,7 @@ func (c *satCycle) addCourse(t *testing.T, key, name string, start func(int) tim
 	if _, err := c.pool.Exec(ctx, `UPDATE courses SET subject_id = $1 WHERE id = $2`, c.subjectID, course.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.pool.Exec(ctx, `INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)`, c.subjectID, course.ID); err != nil {
+	if _, err := c.pool.Exec(ctx, `UPDATE courses SET student_booking_enabled = true WHERE subject_id = $1 AND id = $2`, c.subjectID, course.ID); err != nil {
 		t.Fatal(err)
 	}
 	teacherID, err := c.q.AdminUserCreate(ctx, sqldb.AdminUserCreateParams{Username: "satv-" + key + "-" + c.suffix, Role: "Teacher", PasswordHash: "x"})

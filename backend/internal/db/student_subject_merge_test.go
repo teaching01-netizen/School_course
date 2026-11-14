@@ -64,7 +64,7 @@ func TestStudentSubjectByWcodeMergeAnnotation(t *testing.T) {
 		t.Helper()
 		for _, id := range courseIDs {
 			if _, err := dbpool.Exec(ctx,
-				"INSERT INTO subject_active_courses (subject_id, course_id) SELECT subject_id, id FROM courses WHERE id = $1",
+				"UPDATE courses SET student_booking_enabled = true WHERE id = $1",
 				id); err != nil {
 				t.Fatal(err)
 			}

@@ -313,12 +313,11 @@ func TestCoursesList_AbsenceFormHiddenFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fx.dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		SELECT s.id, $2 FROM subjects s WHERE s.code = $1
+		UPDATE courses SET student_booking_enabled = true WHERE id = $2 AND subject_id = (SELECT id FROM subjects WHERE code = $1)
 	`, subjectCode, mustParseUUID(t, visibleID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET absence_form_visible = false WHERE id = $1`, hiddenID); err != nil {
+	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET student_booking_enabled = false WHERE id = $1`, hiddenID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -388,12 +387,11 @@ func TestCoursesList_AbsenceFormActiveAndAllFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fx.dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		SELECT s.id, $2 FROM subjects s WHERE s.code = $1
+		UPDATE courses SET student_booking_enabled = true WHERE id = $2 AND subject_id = (SELECT id FROM subjects WHERE code = $1)
 	`, subjectCode, mustParseUUID(t, visibleID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET absence_form_visible = false WHERE id = $1`, hiddenID); err != nil {
+	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET student_booking_enabled = false WHERE id = $1`, hiddenID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,9 +439,8 @@ func TestCoursesList_ActiveCourseFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fx.dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		SELECT s.id, c.id FROM subjects s, courses c
-		WHERE s.code = $1 AND c.code = $2
+		UPDATE courses SET student_booking_enabled = true
+		WHERE code = $2 AND subject_id = (SELECT id FROM subjects WHERE code = $1)
 	`, subjectCode, courseCode(token+"A")); err != nil {
 		t.Fatal(err)
 	}
@@ -494,8 +491,7 @@ func TestCoursesList_ActiveAbsenceFilterExcludesInactiveMembership(t *testing.T)
 		t.Fatal(err)
 	}
 	if _, err := fx.dbpool.Exec(ctx, `
-		INSERT INTO subject_active_courses (subject_id, course_id)
-		SELECT s.id, $2 FROM subjects s WHERE s.code = $1
+		UPDATE courses SET student_booking_enabled = true WHERE id = $2 AND subject_id = (SELECT id FROM subjects WHERE code = $1)
 	`, subjectCode, mustParseUUID(t, activeID)); err != nil {
 		t.Fatal(err)
 	}

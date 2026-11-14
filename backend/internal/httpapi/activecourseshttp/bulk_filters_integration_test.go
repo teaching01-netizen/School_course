@@ -6,8 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -17,7 +17,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"warwick-institute/internal/auth"
+	"warwick-institute/internal/courseadmin"
 	sqldb "warwick-institute/internal/db"
+	"warwick-institute/internal/httpapi/audithttp"
+	"warwick-institute/internal/httpapi/courseshttp"
 	"warwick-institute/internal/httpapi/httpdeps"
 )
 
@@ -46,20 +49,33 @@ func newActiveCoursesEnv(t *testing.T) *acEnv {
 	}
 	t.Cleanup(dbpool.Close)
 
+	actor := uuid.New()
+	if _, err := dbpool.Exec(context.Background(), `INSERT INTO users (id, username, role, password_hash) VALUES ($1, $2, 'Admin', 'test')`, actor, actor.String()); err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	Register(mux, httpdeps.Deps{
+	deps := httpdeps.Deps{
 		Q:           sqldb.New(dbpool),
 		DB:          dbpool,
 		Log:         slog.Default(),
 		InstituteTZ: "Asia/Bangkok",
-		Auth:        adminAuth{user: auth.AuthenticatedUser{ID: uuid.New(), Role: "Admin"}},
-	})
+		Auth:        adminAuth{user: auth.AuthenticatedUser{ID: actor, Role: "Admin"}},
+		CourseAdmin: courseadmin.NewService(),
+	}
+	Register(mux, deps)
+	courseshttp.Register(mux, deps)
+	audithttp.Register(mux, deps)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	return &acEnv{dbpool: dbpool, server: server, suffix: uuid.NewString()[:8]}
 }
 
 func (e *acEnv) do(t *testing.T, method, path string, body any) (int, []byte) {
+	t.Helper()
+	return e.doWithKey(t, method, path, body, uuid.NewString())
+}
+
+func (e *acEnv) doWithKey(t *testing.T, method, path string, body any, key string) (int, []byte) {
 	t.Helper()
 	var payload []byte
 	if body != nil {
@@ -69,7 +85,7 @@ func (e *acEnv) do(t *testing.T, method, path string, body any) (int, []byte) {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Idempotency-Key", uuid.NewString())
+	req.Header.Set("Idempotency-Key", key)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -96,21 +112,12 @@ func (e *acEnv) seedCourse(t *testing.T, subjectID uuid.UUID, code string, visib
 	t.Helper()
 	var id uuid.UUID
 	if err := e.dbpool.QueryRow(context.Background(), `
-		INSERT INTO courses (code, name, subject_id, absence_form_visible)
+		INSERT INTO courses (code, name, subject_id, student_booking_enabled)
 		VALUES ($1, $1, $2, $3) RETURNING id
 	`, code, subjectID, visible).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	return id
-}
-
-func (e *acEnv) setActive(t *testing.T, subjectID, courseID uuid.UUID) {
-	t.Helper()
-	if _, err := e.dbpool.Exec(context.Background(), `
-		INSERT INTO subject_active_courses (subject_id, course_id) VALUES ($1, $2)
-	`, subjectID, courseID); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func (e *acEnv) courseVisible(t *testing.T, courseID uuid.UUID) bool {
@@ -119,7 +126,7 @@ func (e *acEnv) courseVisible(t *testing.T, courseID uuid.UUID) bool {
 	defer cancel()
 	var visible bool
 	if err := e.dbpool.QueryRow(ctx,
-		`SELECT absence_form_visible FROM courses WHERE id = $1`, courseID).Scan(&visible); err != nil {
+		`SELECT absence_form_active FROM course_rule_configs WHERE course_id = $1`, courseID).Scan(&visible); err != nil {
 		t.Fatal(err)
 	}
 	return visible
@@ -164,26 +171,17 @@ func subjectCodes(res acListResponse) map[string]bool {
 func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	env := newActiveCoursesEnv(t)
 
-	// Three audit states: configured (active + visible), hidden_active
-	// (active + hidden), missing_active (no active course at all). The mixed
-	// subject has two actives with one hidden — a multi-active subject counts
-	// as hidden_active unless every active class is visible.
 	cfgSubj := env.seedSubject(t, "ACF-CFG-"+env.suffix)
 	cfgCourse := env.seedCourse(t, cfgSubj, "ACF-CFG-C-"+env.suffix, true)
-	env.setActive(t, cfgSubj, cfgCourse)
 
-	hidSubj := env.seedSubject(t, "ACF-HID-"+env.suffix)
-	hidCourse := env.seedCourse(t, hidSubj, "ACF-HID-C-"+env.suffix, false)
-	env.setActive(t, hidSubj, hidCourse)
+	offSubj := env.seedSubject(t, "ACF-OFF-"+env.suffix)
+	env.seedCourse(t, offSubj, "ACF-OFF-C-"+env.suffix, false)
 
 	mixSubj := env.seedSubject(t, "ACF-MIX-"+env.suffix)
-	mixVisible := env.seedCourse(t, mixSubj, "ACF-MIX-V-"+env.suffix, true)
-	mixHidden := env.seedCourse(t, mixSubj, "ACF-MIX-H-"+env.suffix, false)
-	env.setActive(t, mixSubj, mixVisible)
-	env.setActive(t, mixSubj, mixHidden)
+	env.seedCourse(t, mixSubj, "ACF-MIX-V-"+env.suffix, true)
+	env.seedCourse(t, mixSubj, "ACF-MIX-H-"+env.suffix, false)
 
-	missSubj := env.seedSubject(t, "ACF-MISS-"+env.suffix)
-	env.seedCourse(t, missSubj, "ACF-MISS-C-"+env.suffix, true)
+	env.seedSubject(t, "ACF-MISS-"+env.suffix)
 
 	// Search scoping makes counts exact even on a shared test database: every
 	// seeded code ends with this run's unique suffix.
@@ -192,22 +190,16 @@ func TestActiveCoursesListFiltersAndStats(t *testing.T) {
 	if res := env.listSubjects(t, filtered); res.TotalSubjects != 4 {
 		t.Fatalf("scoped search total = %d, want 4 (body %+v)", res.TotalSubjects, res.Subjects)
 	}
-	if res := env.listSubjects(t, filtered+"&status=missing_active"); res.TotalSubjects != 1 || !subjectCodes(res)["ACF-MISS-"+env.suffix] {
-		t.Fatalf("missing_active filter = %+v (total %d), want only ACF-MISS", res.Subjects, res.TotalSubjects)
+	if res := env.listSubjects(t, filtered+"&status=missing_active"); res.TotalSubjects != 2 ||
+		!subjectCodes(res)["ACF-MISS-"+env.suffix] || !subjectCodes(res)["ACF-OFF-"+env.suffix] {
+		t.Fatalf("missing_active = %+v, want the empty and Off subjects", res)
 	}
-	if res := env.listSubjects(t, filtered+"&status=hidden_active"); res.TotalSubjects != 2 ||
-		!subjectCodes(res)["ACF-HID-"+env.suffix] || !subjectCodes(res)["ACF-MIX-"+env.suffix] {
-		t.Fatalf("hidden_active filter = %+v (total %d), want ACF-HID and ACF-MIX", res.Subjects, res.TotalSubjects)
+	if res := env.listSubjects(t, filtered+"&status=hidden_active"); res.TotalSubjects != 0 || res.Stats.HiddenActive != 0 {
+		t.Fatalf("hidden_active = %+v, want zero with the unified setting", res)
 	}
-	if res := env.listSubjects(t, filtered+"&status=configured"); res.TotalSubjects != 1 || !subjectCodes(res)["ACF-CFG-"+env.suffix] {
-		t.Fatalf("configured filter = %+v (total %d), want only ACF-CFG", res.Subjects, res.TotalSubjects)
-	}
-	if res := env.listSubjects(t, filtered+"&status=all"); res.TotalSubjects != 4 {
-		t.Fatalf("status=all total = %d, want 4", res.TotalSubjects)
-	}
-	// Name search must also match (subjects are seeded with code as name).
-	if res := env.listSubjects(t, "?limit=200&search="+env.suffix+"&status=hidden_active"); res.TotalSubjects != 2 {
-		t.Fatalf("search+status combined total = %d, want 2", res.TotalSubjects)
+	if res := env.listSubjects(t, filtered+"&status=configured"); res.TotalSubjects != 2 ||
+		!subjectCodes(res)["ACF-CFG-"+env.suffix] || !subjectCodes(res)["ACF-MIX-"+env.suffix] {
+		t.Fatalf("configured = %+v, want both subjects with an On course", res)
 	}
 
 	// Stats are institute-wide and differential assertions are noise-proof on
@@ -319,7 +311,7 @@ func TestBulkSetActive(t *testing.T) {
 	activeCourses := func(t *testing.T, subjectID uuid.UUID) map[uuid.UUID]bool {
 		t.Helper()
 		rows, err := env.dbpool.Query(context.Background(),
-			`SELECT course_id FROM subject_active_courses WHERE subject_id = $1`, subjectID)
+			`SELECT id FROM courses WHERE subject_id = $1 AND student_booking_enabled`, subjectID)
 		if err != nil {
 			t.Fatal(err)
 		}

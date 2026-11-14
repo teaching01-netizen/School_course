@@ -120,15 +120,9 @@ const courseOverviewWhere = `
 		  AND ($3 = ''
 		       OR ($3 = 'none' AND c.teacher_id IS NULL)
 		       OR c.teacher_id::text = $3)
-		  AND ($5 = ''
-		       OR ($5 = 'active' AND c.absence_form_visible AND EXISTS (
-			       SELECT 1 FROM subject_active_courses sac
-			       WHERE sac.subject_id = c.subject_id AND sac.course_id = c.id
-		       ))
-		       OR ($5 = 'hidden' AND (NOT c.absence_form_visible OR NOT EXISTS (
-			       SELECT 1 FROM subject_active_courses sac
-			       WHERE sac.subject_id = c.subject_id AND sac.course_id = c.id
-		       ))))
+		AND ($5 = ''
+		     OR ($5 = 'active' AND cfg.absence_form_active)
+		     OR ($5 = 'hidden' AND NOT cfg.absence_form_active))
 		  AND ($4 = ''
 		       OR c.course_no::text ILIKE '%' || $4 || '%'
 		       OR c.id::text ILIKE '%' || $4 || '%'
@@ -211,16 +205,16 @@ func (q *Queries) CourseOverview(ctx context.Context, p CourseOverviewParams) ([
 			       c.hour, c.course_type,
 			       c.created_at, c.updated_at, c.legacy_course_id, c.legacy_last_synced_at,
 			       c.cycle_id, COALESCE(cy.display_name, cy.label, '') AS cycle_label,
-			       c.expiry_days, c.legacy_code_conflict, c.absence_form_visible,
+			       c.expiry_days, c.legacy_code_conflict, cfg.absence_form_active AS absence_form_visible,
 			       merge_group.id AS merge_group_id, merge_group.name AS merge_group_name,
-			       EXISTS (SELECT 1 FROM subject_active_courses sac
-			               WHERE sac.course_id = c.id) AS is_active_course
+			       cfg.absence_form_active AS is_active_course
 			FROM courses c
 			LEFT JOIN users u ON u.id = c.teacher_id
 			LEFT JOIN subjects s ON s.id = c.subject_id
 			LEFT JOIN crm_cycles cy ON cy.id = c.cycle_id
 			LEFT JOIN course_merge_group_members merge_member ON merge_member.course_id = c.id
 			LEFT JOIN course_merge_groups merge_group ON merge_group.id = merge_member.group_id
+			JOIN course_rule_configs cfg ON cfg.course_id = c.id
 			`+courseOverviewWhere+`
 			ORDER BY c.course_no DESC
 			LIMIT NULLIF($9, 0) OFFSET $10
@@ -303,7 +297,8 @@ func (q *Queries) CourseOverviewCount(ctx context.Context, p CourseOverviewParam
 		FROM courses c
 		LEFT JOIN users u ON u.id = c.teacher_id
 		LEFT JOIN subjects s ON s.id = c.subject_id
-		`+courseOverviewWhere,
+		JOIN course_rule_configs cfg ON cfg.course_id = c.id
+			`+courseOverviewWhere,
 		courseOverviewFilterArgs(p)...,
 	).Scan(&total)
 	return total, err

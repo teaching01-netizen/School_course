@@ -469,10 +469,9 @@ WITH candidate AS (
                        AND EXISTS (
                            SELECT 1
                            FROM courses c
-                           JOIN subject_active_courses sac
-                             ON sac.subject_id = c.subject_id AND sac.course_id = c.id
+                           JOIN course_rule_configs cfg ON cfg.course_id = c.id
                            WHERE c.legacy_course_id = j.external_id
-                             AND c.absence_form_visible
+                             AND cfg.absence_form_active
                        )
                   THEN 0 ELSE 1 END,
              j.priority ASC,

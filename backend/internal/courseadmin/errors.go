@@ -32,7 +32,7 @@ func HTTPStatusForError(err *Error) int {
 	case "invalid_teacher", "too_many_teachers", "duplicate_teacher",
 		"multiple_primary_teachers", "invalid_expected_version",
 		"invalid_year", "invalid_hour", "invalid_student_count",
-		"invalid_course_type", "invalid_subject":
+		"invalid_course_type", "invalid_subject", "course_booking_managed_in_operations":
 		return http.StatusBadRequest
 	case "stale_edit", "teacher_in_use", "legacy_course_id_conflict":
 		return http.StatusConflict

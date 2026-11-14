@@ -298,7 +298,9 @@ export default function CourseGroupDetail() {
       <ConfirmModal
         open={unmergeOpen}
         title="Unmerge course?"
-        message={`Remove "${group.name}" as a merged view? The source courses, sessions, teachers, students, and existing absence records will remain unchanged. New absence requests will use each source course's separate absence quota again.`}
+        message={group.rule_source_course_id
+          ? "The former follower will start with student booking Off. Enable it in Operations if students should be able to book it."
+          : `Remove "${group.name}" as a merged view? New absence requests will use each course's separate absence quota.`}
         confirmLabel="Unmerge course"
         variant="danger"
         loading={unmerging}
