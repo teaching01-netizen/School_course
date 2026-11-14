@@ -40,13 +40,14 @@ async function installCourseLevelRoutes(page: Page, fixture: {
         return;
       }
       const course = courses.find((item) => item.id === assignment[1]);
-      const group = groups.find((item) => item.id === request.postDataJSON().root_course_group_id);
-      if (!course || !group) {
+      const groupId = request.postDataJSON().root_course_group_id;
+      const group = groups.find((item) => item.id === groupId);
+      if (!course || (groupId !== null && !group)) {
         await route.fulfill({ status: 400, json: { message: "Invalid course or group" } });
         return;
       }
-      course.root_course_group_id = group.id;
-      course.root_course_group_name = group.name;
+      course.root_course_group_id = group?.id ?? null;
+      course.root_course_group_name = group?.name ?? null;
       await route.fulfill({ json: { status: "ok" } });
       return;
     }
@@ -118,6 +119,54 @@ const C4_LINK: CourseMergeGroupConfig = {
   sit_in_rule_id: RULES[0].id, course_codes: ["26453296000", "262073290700"],
   course_names: ["SAT Math: Beginner C4", "SAT Math: Beginner C4 (split)"], rule_source_course_code: "26453296000",
 };
+
+test("removing a continuation from its course group keeps both courses and their shared level", async ({ page }) => {
+  const routes = await installCourseLevelRoutes(page, {
+    courses: [
+      ...C4_COURSES.map((course) => ({
+        ...course,
+        root_course_group_id: C4_GROUP.id,
+        root_course_group_name: C4_GROUP.name,
+      })),
+      { ...COURSES[1], root_course_group_id: C4_GROUP.id, root_course_group_name: C4_GROUP.name },
+    ],
+    groups: [C4_GROUP],
+    mergeGroups: [C4_LINK],
+  });
+  await page.goto("/course-levels");
+
+  const table = page.getByRole("region", { name: "Course levels table" });
+  const remove = table.getByRole("button", { name: "Remove from group (262073290700)" });
+  const dialog = page.getByRole("dialog", { name: "Remove from course group?" });
+
+  await remove.click();
+  await expect(dialog).toContainText("both linked courses");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(remove).toBeVisible();
+
+  routes.failNextAssignment();
+  await remove.click();
+  await dialog.getByRole("button", { name: "Remove from group" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Assignment temporarily failed" }).first()).toBeVisible();
+  await expect(remove).toBeVisible();
+
+  await remove.click();
+  await dialog.getByRole("button", { name: "Remove from group" }).click();
+  await expect(table.getByText("26453296000", { exact: true })).toHaveCount(0);
+  await expect(table.getByText("262073290700", { exact: true })).toHaveCount(0);
+  await expect(table.getByText("MATH-201", { exact: true })).toBeVisible();
+
+  await page.reload();
+  if (await page.evaluate(() => window.innerWidth < 1024)) {
+    await page.getByRole("combobox", { name: "Course group" }).selectOption({ label: "Unassigned (2)" });
+  } else {
+    await page.getByRole("button", { name: "Unassigned", exact: true }).click();
+  }
+  await expect(table.getByRole("spinbutton", { name: "Level for 26453296000" })).toHaveValue("1");
+  await expect(table.getByRole("spinbutton", { name: "Level for 262073290700" })).toHaveValue("1");
+  await expect(table.getByText("Follows 26453296000", { exact: true })).toBeVisible();
+  await expect(table.getByRole("button", { name: /Remove from group/ })).toHaveCount(0);
+});
 
 test("setting a continuation level updates both linked rows and persists without a cycle", async ({ page }) => {
   const courses = C4_COURSES.map((course) => ({

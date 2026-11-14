@@ -157,6 +157,7 @@ export default function CourseLevelManagerPanel({
   const [savingGroup, setSavingGroup] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<RootCourseGroupInfo | null>(null);
   const [deletingGroup, setDeletingGroup] = useState(false);
+  const [removeCourseId, setRemoveCourseId] = useState<string | null>(null);
   const [savingCourseId, setSavingCourseId] = useState<string | null>(null);
   const [savingSitInRule, setSavingSitInRule] = useState(false);
   const [ruleError, setRuleError] = useState<string | null>(null);
@@ -283,6 +284,8 @@ export default function CourseLevelManagerPanel({
 
   const selectedGroup = groupOptions.find((group) => group.id === selectedGroupId) ?? groupOptions[0] ?? null;
   const selectedRootGroup = selectedGroup && !selectedGroup.virtual ? groups.find((group) => group.id === selectedGroup.id) ?? null : null;
+  const removalRow = removeCourseId ? effective.rows.get(removeCourseId) : undefined;
+  const removalCourse = removalRow?.groupCourse;
   const selectedCourses = useMemo(() => {
     if (!selectedGroup) return [];
     return [...(coursesByGroup.get(selectedGroup.id) ?? [])].sort((a, b) => {
@@ -648,20 +651,30 @@ export default function CourseLevelManagerPanel({
     }
   }
 
+  async function updateCourseGroup(courseId: string, group: RootCourseGroupInfo | null) {
+    const groupId = group?.id ?? null;
+    await apiJson(`/api/v1/admin/courses/${courseId}/root-course-group`, {
+      method: "PUT",
+      body: JSON.stringify({ root_course_group_id: groupId }),
+    });
+    onCoursesChange((previous) => previous.map((course) => course.id === courseId
+      ? { ...course, root_course_group_id: groupId, root_course_group_name: group?.name ?? null }
+      : course));
+  }
+
   async function assignCourse(courseId: string) {
-    if (!selectedGroup || selectedGroup.virtual || savingCourseId || mergeConfigError) return;
+    if (!selectedRootGroup || savingCourseId || mergeConfigError) return;
     const row = effective.rows.get(courseId);
     const course = row?.groupCourse;
-    if (!course || course.root_course_group_id === selectedGroup.id) return;
-    if ((row.displayLevel ?? course.level) !== null && !selectedRootGroup?.sit_in_rule_id) {
+    if (!course || course.root_course_group_id === selectedRootGroup.id) return;
+    if ((row.displayLevel ?? course.level) !== null && !selectedRootGroup.sit_in_rule_id) {
       addToast("error", "Assign a sit-in rule before adding a levelled course to this group");
       return;
     }
     setSavingCourseId(course.id);
     try {
-      await apiJson(`/api/v1/admin/courses/${course.id}/root-course-group`, { method: "PUT", body: JSON.stringify({ root_course_group_id: selectedGroup.id }) });
-      onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, root_course_group_id: selectedGroup.id, root_course_group_name: selectedGroup.name } : item));
-      addToast("success", `${course.code} added to ${selectedGroup.name}`);
+      await updateCourseGroup(course.id, selectedRootGroup);
+      addToast("success", `${course.code} added to ${selectedRootGroup.name}`);
     } catch (error) {
       addToast("error", error instanceof Error ? error.message : "Failed to assign course");
     } finally {
@@ -670,6 +683,7 @@ export default function CourseLevelManagerPanel({
   }
 
   async function moveCourse(course: CourseLevelItem, groupId: string) {
+    if (savingCourseId) return;
     const row = effective.rows.get(course.id);
     if (row?.mergeGroup) {
       setRowError(course.id, "Linked courses cannot be moved between course groups. Manage the link in Sit-in Rules.");
@@ -680,10 +694,9 @@ export default function CourseLevelManagerPanel({
       return;
     }
     const nextGroup = groups.find((group) => group.id === groupId) ?? null;
-    const nextGroupId = groupId || null;
-    if (course.root_course_group_id === nextGroupId) return;
-    if (!nextGroupId && (row?.displayLevel ?? course.level) !== null) {
-      setRowError(course.id, "Levelled courses cannot be left unassigned. Move this course to another group with a sit-in rule instead.");
+    if ((groupId && !nextGroup) || course.root_course_group_id === (nextGroup?.id ?? null)) return;
+    if (!nextGroup && (row?.displayLevel ?? course.level) !== null) {
+      setRowError(course.id, "Levelled courses cannot be left unassigned with the group picker. Use Remove from group to confirm, or choose another group with a sit-in rule.");
       return;
     }
     if ((row?.displayLevel ?? course.level) !== null && nextGroup && !nextGroup.sit_in_rule_id) {
@@ -693,8 +706,7 @@ export default function CourseLevelManagerPanel({
     setSavingCourseId(course.id);
     clearRowError(course.id);
     try {
-      await apiJson(`/api/v1/admin/courses/${course.id}/root-course-group`, { method: "PUT", body: JSON.stringify({ root_course_group_id: nextGroupId }) });
-      onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, root_course_group_id: nextGroupId, root_course_group_name: nextGroup?.name ?? null } : item));
+      await updateCourseGroup(course.id, nextGroup);
       addToast("success", `${course.code} group updated`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to update course group";
@@ -702,6 +714,28 @@ export default function CourseLevelManagerPanel({
       addToast("error", message);
     } finally {
       setSavingCourseId(null);
+    }
+  }
+
+  async function removeCourseFromGroup() {
+    if (!removalCourse || !removalCourse.root_course_group_id || savingCourseId || mergeConfigError) return;
+    setSavingCourseId(removalCourse.id);
+    try {
+      await updateCourseGroup(removalCourse.id, null);
+      if (newLevelCourseId === removalCourse.id) {
+        setNewLevelCourseId("");
+        setNewLevel("");
+        clearRowError("__add__");
+      }
+      if (removeCourseId) clearRowError(removeCourseId);
+      addToast("success", removalRow?.mergeGroup?.rule_source_course_code
+        ? "Both linked courses moved to Unassigned"
+        : `${removalCourse.code} moved to Unassigned`);
+    } catch (error) {
+      addToast("error", error instanceof Error ? error.message : "Failed to remove course from group");
+    } finally {
+      setSavingCourseId(null);
+      setRemoveCourseId(null);
     }
   }
 
@@ -1072,11 +1106,7 @@ export default function CourseLevelManagerPanel({
                       const rowError = rowErrors[course.id];
                       const noteId = `course-level-note-${course.id}`;
                       const errorId = `course-level-error-${course.id}`;
-                      const linkedRowIsSaving = Boolean(
-                        row?.mergeGroup?.rule_source_course_code
-                        && row.mergeGroup.course_codes.some((code) => courses.some((item) => item.code === code && item.id === savingCourseId)),
-                      );
-                      const canEditRow = canEditLevels && Boolean(row?.canEditLevel) && savingCourseId !== course.id && !linkedRowIsSaving;
+                      const canEditRow = canEditLevels && Boolean(row?.canEditLevel) && savingCourseId === null;
                       const continuationNote = row?.mergeGroup?.rule_source_course_code
                         ? "Shared level for both linked course IDs. Saving overrides the source course's level for this link."
                         : null;
@@ -1147,7 +1177,7 @@ export default function CourseLevelManagerPanel({
                                 variant="secondary"
                                 size="sm"
                                 disabled={!dirty || !canEditRow}
-                                loading={savingCourseId === course.id}
+                                loading={removeCourseId === null && savingCourseId === course.id}
                                 aria-label={`Save level for ${course.code}`}
                                 onClick={() => void saveLevel(course, draftLevel)}
                               >
@@ -1159,11 +1189,22 @@ export default function CourseLevelManagerPanel({
                                 onChange={(value) => void moveCourse(course, value)}
                                 options={groupCourseOptions}
                                 placeholder="Group"
-                                disabled={savingCourseId === course.id || Boolean(row?.mergeGroup) || Boolean(mergeConfigError)}
+                                disabled={savingCourseId !== null || Boolean(row?.mergeGroup) || Boolean(mergeConfigError)}
                                 aria-invalid={Boolean(rowError)}
                                 aria-describedby={rowError ? errorId : undefined}
                                 className="w-36"
                               />
+                              {!selectedGroup.virtual && row?.groupCourse ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={savingCourseId !== null || Boolean(mergeConfigError)}
+                                  aria-label={`Remove from group (${course.code})`}
+                                  onClick={() => setRemoveCourseId(course.id)}
+                                >
+                                  Remove from group
+                                </Button>
+                              ) : null}
                             </div>
                             {row?.mergeGroup && row.groupCourse ? (
                               <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
@@ -1198,6 +1239,17 @@ export default function CourseLevelManagerPanel({
         loading={deletingGroup}
         onConfirm={() => void deleteGroup()}
         onCancel={() => setDeleteTarget(null)}
+      />
+      <ConfirmModal
+        open={Boolean(removalCourse)}
+        title="Remove from course group?"
+        message={removalRow?.mergeGroup?.rule_source_course_code
+          ? `This moves both linked courses (${removalRow.mergeGroup.course_codes.join(", ")}) to Unassigned. Their shared level and link are kept.`
+          : `This moves ${removalCourse?.code} to Unassigned and keeps its saved level.`}
+        confirmLabel="Remove from group"
+        loading={savingCourseId !== null}
+        onConfirm={() => void removeCourseFromGroup()}
+        onCancel={() => setRemoveCourseId(null)}
       />
     </div>
   );
