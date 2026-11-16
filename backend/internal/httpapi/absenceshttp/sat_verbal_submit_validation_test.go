@@ -9,7 +9,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
-// Submit-time validation resolves the policy once (afterPriority=0) and must
+// Submit-time validation resolves all priorities once and must
 // still accept a session the student reached via "See other times".
 func TestSatVerbalSubmitValidation_AcceptsRevealedLowerPriorities(t *testing.T) {
 	sec2ID := "a2000000-0000-0000-0000-000000000002"
@@ -60,15 +60,16 @@ func TestSatVerbalSubmitValidation_AcceptsRevealedLowerPriorities(t *testing.T) 
 			session("b6000000-0000-0000-0000-000000000002", writing5ID, "2026-02-26T10:00:00Z", "2026-02-26T12:00:00Z"),
 		},
 	}
-	resolve := func(after int) *SitInResult {
+	resolve := func(after int, all bool) *SitInResult {
 		t.Helper()
 		result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
-			Policy:             rules,
-			MissedCourse:       courses[0],
-			Enrolled:           []sqldb.StudentEnrolledCourseV2{satEnrolled(sec2ID, courses[0].Name)},
-			AllCourses:         courses,
-			MissedSessions:     []sqldb.SessionInRange{missed},
-			AfterPriorityLevel: after,
+			Policy:               rules,
+			MissedCourse:         courses[0],
+			Enrolled:             []sqldb.StudentEnrolledCourseV2{satEnrolled(sec2ID, courses[0].Name)},
+			AllCourses:           courses,
+			MissedSessions:       []sqldb.SessionInRange{missed},
+			AfterPriorityLevel:   after,
+			IncludeAllPriorities: all,
 			LoadSessions: func(_ context.Context, id pgtype.UUID) ([]sqldb.SessionInRange, error) {
 				return sessionsByCourse[id], nil
 			},
@@ -80,20 +81,17 @@ func TestSatVerbalSubmitValidation_AcceptsRevealedLowerPriorities(t *testing.T) 
 	}
 
 	// What the student sees after one / two "See other times" taps.
-	if got := resolve(1).CurrentPriorityLevel; got != 2 {
+	if got := resolve(1, false).CurrentPriorityLevel; got != 2 {
 		t.Fatalf("after=1 level = %d, want 2", got)
 	}
-	if got := resolve(2).CurrentPriorityLevel; got != 3 {
+	if got := resolve(2, false).CurrentPriorityLevel; got != 3 {
 		t.Fatalf("after=2 level = %d, want 3", got)
 	}
 
 	// What submit validation sees.
-	levels, err := sitInPriorityLevels(func(after int) (*SitInResult, error) { return resolve(after), nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(levels) != 3 {
-		t.Fatalf("validation walked %d levels, want 3", len(levels))
+	resolved := resolve(0, true)
+	if len(resolved.Priorities) != 3 {
+		t.Fatalf("validation resolved %d priorities, want 3", len(resolved.Priorities))
 	}
 	cases := []struct {
 		name    string
@@ -109,7 +107,7 @@ func TestSatVerbalSubmitValidation_AcceptsRevealedLowerPriorities(t *testing.T) 
 		{"off-chain Writing Rank 5", writing5ID, "b6000000-0000-0000-0000-000000000001", false},
 	}
 	for _, tc := range cases {
-		if got := sitInSelectionAllowedAtAnyLevel(levels, tc.course, []pgtype.UUID{makeUUID(tc.session)}); got != tc.want {
+		if got := resolvedSitInSelectionAllowsCourse(resolved, tc.course, []string{tc.session}); got != tc.want {
 			t.Errorf("%s: allowed = %v, want %v", tc.name, got, tc.want)
 		}
 	}

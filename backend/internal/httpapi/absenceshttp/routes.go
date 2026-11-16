@@ -835,7 +835,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
 			if err := s.validateSitInCandidates(r.Context(), qtx, item.ID, sessionUUIDs); err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", err.Error())
+				s.writeSitInValidationError(w, err)
 				return 0, nil, err
 			}
 			sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))

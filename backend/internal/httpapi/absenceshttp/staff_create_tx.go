@@ -239,7 +239,7 @@ func (s *server) createStaffAbsenceTx(
 				return "", nil, fmt.Errorf("invalid sit-in sessions")
 			}
 			if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs); err != nil {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", err.Error())
+				s.writeSitInValidationError(w, err)
 				return "", nil, err
 			}
 		}

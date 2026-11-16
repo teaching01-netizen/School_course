@@ -608,7 +608,7 @@ func (s *server) createAbsenceRecordTx(
 			return createdAbsenceRecord{}, false
 		}
 		if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs); err != nil {
-			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", err.Error())
+			s.writeSitInValidationError(w, err)
 			return createdAbsenceRecord{}, false
 		}
 		sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))

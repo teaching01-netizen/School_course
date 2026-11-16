@@ -2,8 +2,10 @@ package absenceshttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
+	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -27,67 +29,46 @@ func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, 
 	if !sourceCourseID.Valid || !subjectID.Valid || !targetCourseID.Valid || !dateFrom.Valid || !dateTo.Valid {
 		return fmt.Errorf("absence is missing sit-in policy context")
 	}
-	// SAT Verbal reveals one priority level per request; a student may submit a
-	// session from any level they could reach, so check every level in turn.
-	levels, err := sitInPriorityLevels(func(after int) (*SitInResult, error) {
-		return resolveSitInForCourse(ctx, q, wcode, sourceCourseID, subjectID, dateFrom.Time, dateTo.Time.AddDate(0, 0, 1), s.deps.InstituteTZ, after, true)
+	started := time.Now()
+	defer func() {
+		if s.deps.Log != nil {
+			s.deps.Log.Info("sit-in submit policy validation", "duration_ms", time.Since(started).Milliseconds(), "selected_sessions", len(sessionIDs))
+		}
+	}()
+	resolved, err := resolveSitInForCourseWithOptions(ctx, q, wcode, sourceCourseID, subjectID, dateFrom.Time, dateTo.Time.AddDate(0, 0, 1), s.deps.InstituteTZ, sitInResolveOptions{
+		studentFacing:      true,
+		selectedSessionIDs: sessionIDs,
 	})
 	if err != nil {
 		return fmt.Errorf("resolve authorized sit-in targets: %w", err)
 	}
-	if !sitInSelectionAllowedAtAnyLevel(levels, targetCourseID.String(), sessionIDs) {
-		return fmt.Errorf("selected sit-in session is outside the allowed policy target")
+	selected := make([]string, 0, len(sessionIDs))
+	for _, id := range sessionIDs {
+		selected = append(selected, id.String())
 	}
-	if s.deps.SitInResolver == nil {
-		return nil
+	if !resolvedSitInSelectionAllowsCourse(resolved, targetCourseID.String(), selected) {
+		return errInvalidSitInSelection
 	}
-	resolver := s.deps.SitInResolver.WithQueries(q)
-	for _, sessionID := range sessionIDs {
-		validation, err := resolver.ValidateCandidate(ctx, absenceID, sessionID)
-		if err != nil {
-			return err
-		}
-		if !validation.Valid {
-			return fmt.Errorf("sit-in session is not currently eligible: %s", strings.Join(validation.Reasons, ", "))
-		}
-	}
+	// Callers already check active sessions and missed-class overlap with
+	// ValidSitInSessionOverlap. Expected-class conflicts were checked above in
+	// one batch; sessions_valid_range enforces positive duration in the database.
 	return nil
 }
 
-// sitInPriorityLevels collects every reveal step: level 1, then each
-// "See other times" level until the policy reports no further priority.
-func sitInPriorityLevels(resolve func(after int) (*SitInResult, error)) ([]*SitInResult, error) {
-	var levels []*SitInResult
-	for after := 0; ; {
-		resolved, err := resolve(after)
-		if err != nil {
-			return nil, err
-		}
-		levels = append(levels, resolved)
-		if resolved == nil || !resolved.HasNextPriority || resolved.CurrentPriorityLevel <= after {
-			return levels, nil
-		}
-		after = resolved.CurrentPriorityLevel
-	}
-}
+var errInvalidSitInSelection = errors.New("selected sit-in session is outside the allowed policy target")
 
-// sitInSelectionAllowedAtAnyLevel reports whether every selected session is
-// allowed for the target course by at least one revealed priority level.
-func sitInSelectionAllowedAtAnyLevel(levels []*SitInResult, targetCourseID string, sessionIDs []pgtype.UUID) bool {
-	if len(sessionIDs) == 0 {
-		return false
+func (s *server) writeSitInValidationError(w http.ResponseWriter, err error) {
+	if s.deps.Log != nil && !errors.Is(err, errInvalidSitInSelection) {
+		s.deps.Log.Error("sit-in submit validation failed", "error", err)
 	}
-	for _, sessionID := range sessionIDs {
-		allowed := false
-		for _, level := range levels {
-			if resolvedSitInSelectionAllowsCourse(level, targetCourseID, []string{sessionID.String()}) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return false
-		}
+	switch {
+	case errors.Is(err, errInvalidSitInSelection):
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "A selected make-up session is no longer eligible. Refresh the form and choose another session.")
+	case errors.Is(err, context.DeadlineExceeded):
+		s.a.WriteErr(w, http.StatusGatewayTimeout, "timeout", "Checking make-up sessions took too long. Please try again.")
+	case errors.Is(err, context.Canceled):
+		s.a.WriteErr(w, http.StatusServiceUnavailable, "canceled", "The request was interrupted. Please try again.")
+	default:
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not check the selected make-up sessions. Please try again.")
 	}
-	return true
 }

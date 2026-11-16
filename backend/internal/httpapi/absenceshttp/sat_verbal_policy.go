@@ -59,6 +59,7 @@ type satVerbalResolveInput struct {
 	Cutoff                 time.Time
 	RequestTime            time.Time
 	InstituteTZ            string
+	IncludeAllPriorities   bool
 	AfterPriorityLevel     int
 	BlockedSitInSessionIDs map[string]struct{}
 	LoadSessions           func(context.Context, pgtype.UUID) ([]sqldb.SessionInRange, error)
@@ -139,6 +140,9 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 		return nil, nil
 	}
 	visiblePriorities, currentLevel, hasNext := satVerbalVisiblePriority(priorities, input.AfterPriorityLevel)
+	if input.IncludeAllPriorities {
+		visiblePriorities, currentLevel, hasNext = priorities, 0, false
+	}
 	if len(visiblePriorities) == 0 {
 		return satVerbalNoMakeupResult(len(input.MissedSessions)), nil
 	}
@@ -178,6 +182,9 @@ func resolveSatVerbalPolicy(ctx context.Context, input satVerbalResolveInput) (*
 			return nil, err
 		}
 		visible, level, sessionHasNext := satVerbalVisiblePriority(sessionPriorities, input.AfterPriorityLevel)
+		if input.IncludeAllPriorities {
+			visible, level, sessionHasNext = sessionPriorities, 0, false
+		}
 		occurrenceNumber := 0
 		if len(sessionSlots) > 0 {
 			occurrenceNumber = sessionSlots[0].Index + 1

@@ -544,6 +544,21 @@ func filterActiveSitInCourses(ctx context.Context, q *sqldb.Queries, pool []sqld
 // Uses the MISSED course's level to determine sit-in behavior, not the student's
 // highest enrolled level. Level 1 absences always yield Zoom.
 func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, satVerbalAfterPriority int, studentFacing bool) (*SitInResult, error) {
+	return resolveSitInForCourseWithOptions(ctx, q, wcode, courseID, subjectID, dateFrom, dateTo, instituteTZ, sitInResolveOptions{
+		afterPriorityLevel: satVerbalAfterPriority,
+		studentFacing:      studentFacing,
+	})
+}
+
+type sitInResolveOptions struct {
+	afterPriorityLevel int
+	studentFacing      bool
+	// A non-nil selection resolves all priorities for submit, checking expected
+	// attendance only for these IDs. Nil keeps the discovery behavior.
+	selectedSessionIDs []pgtype.UUID
+}
+
+func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, options sitInResolveOptions) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return nil, fmt.Errorf("student not found: %w", err)
@@ -554,7 +569,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		return nil, fmt.Errorf("enrolled courses lookup: %w", err)
 	}
 	if len(enrolled) == 0 {
-		return nil, fmt.Errorf("student not enrolled in any course for this subject")
+		return nil, fmt.Errorf("%w: student not enrolled in any course for this subject", errInvalidSitInSelection)
 	}
 	// SAT Verbal derives targets from the student's main course, which lives in
 	// another root group, so it needs the subject-wide enrollment list.
@@ -592,14 +607,11 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 	if err != nil {
 		return nil, fmt.Errorf("active sit-in sessions lookup: %w", err)
 	}
-	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateTo, instituteTZ, satVerbalAfterPriority, studentFacing, blockedSitInSessionIDs); err != nil {
+	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateTo, instituteTZ, options.afterPriorityLevel, options.studentFacing, blockedSitInSessionIDs, options.selectedSessionIDs != nil); err != nil {
 		return nil, err
 	} else if mapped != nil {
-		if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, mapped, instituteTZ); err != nil {
-			return nil, fmt.Errorf("expected class conflict lookup: %w", err)
-		}
-		if err := enrichSitInResultConflicts(ctx, q, student.ID, mapped); err != nil {
-			return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+		if err := options.filterConflicts(ctx, q, student.ID, mapped, instituteTZ); err != nil {
+			return nil, err
 		}
 		return mapped, nil
 	}
@@ -622,7 +634,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 		}
 	}
 	if missedCourse == nil {
-		return nil, fmt.Errorf("no enrolled course has a level")
+		return nil, fmt.Errorf("%w: no enrolled course has a level", errInvalidSitInSelection)
 	}
 
 	mergeScope, hasMergeScope, err := mergeGroupScopeForCourse(ctx, q, courseID)
@@ -645,7 +657,7 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			return nil, fmt.Errorf("merged course lookup: %w", err)
 		}
 	}
-	if studentFacing {
+	if options.studentFacing {
 		allCourses, err = filterActiveSitInCourses(ctx, q, allCourses)
 		if err != nil {
 			return nil, err
@@ -671,11 +683,8 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			if resolveErr != nil {
 				return nil, resolveErr
 			}
-			if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, result, instituteTZ); err != nil {
-				return nil, fmt.Errorf("expected class conflict lookup: %w", err)
-			}
-			if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
-				return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+			if err := options.filterConflicts(ctx, q, student.ID, result, instituteTZ); err != nil {
+				return nil, err
 			}
 			return result, nil
 		}
@@ -761,11 +770,8 @@ func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, 
 			return nil, err
 		}
 	}
-	if err := filterSitInResultByAuthoritativeExpectedSessions(ctx, q, student.ID, result, instituteTZ); err != nil {
-		return nil, fmt.Errorf("expected class conflict lookup: %w", err)
-	}
-	if err := enrichSitInResultConflicts(ctx, q, student.ID, result); err != nil {
-		return nil, fmt.Errorf("sit-in conflict lookup: %w", err)
+	if err := options.filterConflicts(ctx, q, student.ID, result, instituteTZ); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -782,7 +788,7 @@ func resolveMappedSatVerbalSitIn(
 	afterPriorityLevel int,
 	studentFacing bool,
 ) (*SitInResult, error) {
-	return resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, afterPriorityLevel, studentFacing, nil)
+	return resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, afterPriorityLevel, studentFacing, nil, false)
 }
 
 func resolveMappedSatVerbalSitInWithBlockedSessions(
@@ -797,6 +803,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 	afterPriorityLevel int,
 	studentFacing bool,
 	blockedSitInSessionIDs map[string]struct{},
+	includeAllPriorities bool,
 ) (*SitInResult, error) {
 	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
 	if err != nil {
@@ -910,7 +917,9 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		}
 	}
 
+	loadedSessions := make(map[pgtype.UUID][]sqldb.SessionInRange)
 	return resolveSatVerbalPolicy(ctx, satVerbalResolveInput{
+		IncludeAllPriorities:   includeAllPriorities,
 		Rule:                   &rule,
 		MappedCourses:          activeMapped,
 		MissedCourse:           missedCourse,
@@ -924,7 +933,15 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		AfterPriorityLevel:     afterPriorityLevel,
 		BlockedSitInSessionIDs: blockedSitInSessionIDs,
 		LoadSessions: func(ctx context.Context, targetCourseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
-			return q.SessionsByCourse(ctx, targetCourseID)
+			if sessions, ok := loadedSessions[targetCourseID]; ok {
+				return sessions, nil
+			}
+			sessions, err := q.SessionsByCourse(ctx, targetCourseID)
+			if err != nil {
+				return nil, err
+			}
+			loadedSessions[targetCourseID] = sessions
+			return sessions, nil
 		},
 	})
 }

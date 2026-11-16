@@ -77,16 +77,25 @@ func filterSitInResultByExpectedSessions(result *SitInResult, blockers []sqldb.S
 	}
 }
 
-func filterSitInResultByAuthoritativeExpectedSessions(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, result *SitInResult, instituteTZ string) error {
-	candidateIDs, err := sitInResultCandidateSessionIDs(result)
-	if err != nil || len(candidateIDs) == 0 {
-		return err
+func (options sitInResolveOptions) filterConflicts(ctx context.Context, q *sqldb.Queries, studentID pgtype.UUID, result *SitInResult, instituteTZ string) error {
+	candidateIDs := options.selectedSessionIDs
+	if candidateIDs == nil {
+		var err error
+		candidateIDs, err = sitInResultCandidateSessionIDs(result)
+		if err != nil {
+			return err
+		}
 	}
 	blockers, err := q.ExpectedSessionConflictsForStudentCandidates(ctx, studentID, candidateIDs, instituteTZ)
 	if err != nil {
 		return fmt.Errorf("expected class conflict lookup: %w", err)
 	}
 	filterSitInResultByExpectedSessions(result, blockers)
+	if options.selectedSessionIDs == nil {
+		if err := enrichSitInResultConflicts(ctx, q, studentID, result); err != nil {
+			return fmt.Errorf("sit-in conflict lookup: %w", err)
+		}
+	}
 	return nil
 }
 
