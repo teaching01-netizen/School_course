@@ -38,6 +38,7 @@ func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, 
 	resolved, err := resolveSitInForCourseWithOptions(ctx, q, wcode, sourceCourseID, subjectID, dateFrom.Time, dateTo.Time.AddDate(0, 0, 1), s.deps.InstituteTZ, sitInResolveOptions{
 		studentFacing:      true,
 		selectedSessionIDs: sessionIDs,
+		targetCourseID:     targetCourseID,
 	})
 	if err != nil {
 		return fmt.Errorf("resolve authorized sit-in targets: %w", err)

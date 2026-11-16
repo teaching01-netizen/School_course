@@ -60,16 +60,21 @@ func TestSatVerbalSubmitValidation_AcceptsRevealedLowerPriorities(t *testing.T) 
 			session("b6000000-0000-0000-0000-000000000002", writing5ID, "2026-02-26T10:00:00Z", "2026-02-26T12:00:00Z"),
 		},
 	}
-	resolve := func(after int, all bool) *SitInResult {
+	resolve := func(after int, all bool, target ...pgtype.UUID) *SitInResult {
 		t.Helper()
+		var selectedTarget pgtype.UUID
+		if len(target) > 0 {
+			selectedTarget = target[0]
+		}
 		result, err := resolveSatVerbalPolicy(context.Background(), satVerbalResolveInput{
-			Policy:               rules,
-			MissedCourse:         courses[0],
-			Enrolled:             []sqldb.StudentEnrolledCourseV2{satEnrolled(sec2ID, courses[0].Name)},
-			AllCourses:           courses,
-			MissedSessions:       []sqldb.SessionInRange{missed},
-			AfterPriorityLevel:   after,
-			IncludeAllPriorities: all,
+			SelectedTargetCourseID: selectedTarget,
+			Policy:                 rules,
+			MissedCourse:           courses[0],
+			Enrolled:               []sqldb.StudentEnrolledCourseV2{satEnrolled(sec2ID, courses[0].Name)},
+			AllCourses:             courses,
+			MissedSessions:         []sqldb.SessionInRange{missed},
+			AfterPriorityLevel:     after,
+			IncludeAllPriorities:   all,
 			LoadSessions: func(_ context.Context, id pgtype.UUID) ([]sqldb.SessionInRange, error) {
 				return sessionsByCourse[id], nil
 			},
@@ -107,6 +112,10 @@ func TestSatVerbalSubmitValidation_AcceptsRevealedLowerPriorities(t *testing.T) 
 		{"off-chain Writing Rank 5", writing5ID, "b6000000-0000-0000-0000-000000000001", false},
 	}
 	for _, tc := range cases {
+		scoped := resolve(0, true, makeUUID(tc.course))
+		if got := resolvedSitInSelectionAllowsCourse(scoped, tc.course, []string{tc.session}); got != tc.want {
+			t.Errorf("%s scoped: allowed = %v, want %v", tc.name, got, tc.want)
+		}
 		if got := resolvedSitInSelectionAllowsCourse(resolved, tc.course, []string{tc.session}); got != tc.want {
 			t.Errorf("%s: allowed = %v, want %v", tc.name, got, tc.want)
 		}

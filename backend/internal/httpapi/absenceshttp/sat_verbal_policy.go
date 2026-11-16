@@ -59,6 +59,7 @@ type satVerbalResolveInput struct {
 	Cutoff                 time.Time
 	RequestTime            time.Time
 	InstituteTZ            string
+	SelectedTargetCourseID pgtype.UUID
 	IncludeAllPriorities   bool
 	AfterPriorityLevel     int
 	BlockedSitInSessionIDs map[string]struct{}
@@ -219,12 +220,17 @@ func satVerbalResolvePriorities(
 		sameLessonOnly := priority.RuleType == RuleTypeCrossSection && !strings.Contains(strings.ToLower(priority.Label), "next available")
 		priorityHadResult := false
 		for _, target := range targets {
+			if !satVerbalSelectedTarget(input, target) {
+				continue
+			}
 			targetSessions, err := input.LoadSessions(ctx, target.ID)
 			if err != nil {
 				return nil, fmt.Errorf("target course sessions lookup: %w", err)
 			}
 			options := satVerbalSessionOptionsForTargetWithBlockedSessions(targetSessions, missedSessions, missedLessonSlots, sameLessonOnly, rule.LastClassExcluded, notBefore, input.Cutoff, instituteLoc, offered, input.BlockedSitInSessionIDs)
-			options.MergedRanges = mergedSessionRangesForTarget(ctx, input, target, targetSessions, instituteLoc)
+			if !input.SelectedTargetCourseID.Valid {
+				options.MergedRanges = mergedSessionRangesForTarget(ctx, input, target, targetSessions, instituteLoc)
+			}
 			if len(options.Available) == 0 && len(options.Unavailable) == 0 {
 				continue
 			}
@@ -239,6 +245,23 @@ func satVerbalResolvePriorities(
 		}
 	}
 	return priorities, nil
+}
+
+// Submit needs policy eligibility for the chosen target and its merged members.
+// Other targets cannot authorize that selection, so their schedules are unnecessary.
+func satVerbalSelectedTarget(input satVerbalResolveInput, target sqldb.SubjectCourseV2) bool {
+	if !input.SelectedTargetCourseID.Valid || target.ID == input.SelectedTargetCourseID {
+		return true
+	}
+	if !target.MergeGroupID.Valid {
+		return false
+	}
+	for _, course := range input.AllCourses {
+		if course.ID == input.SelectedTargetCourseID {
+			return course.MergeGroupID.Valid && course.MergeGroupID == target.MergeGroupID
+		}
+	}
+	return false
 }
 
 func mergedSessionRangesForTarget(ctx context.Context, input satVerbalResolveInput, target sqldb.SubjectCourseV2, targetSessions []sqldb.SessionInRange, loc *time.Location) map[string]struct{ StartAt, EndAt string } {

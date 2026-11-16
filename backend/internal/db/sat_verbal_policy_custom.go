@@ -2,10 +2,60 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type SatVerbalMappedCourse struct {
+	Course         SubjectCourseV2
+	PolicyRule     []byte
+	MergeGroupName string
+}
+
+// SatVerbalMappedCourses expands the active mapping catalog in one query,
+// including merged members in their policy order. It uses the same course
+// fields as CourseSubjectByID for merged targets and the mapping for direct ones.
+func (q *Queries) SatVerbalMappedCourses(ctx context.Context) ([]SatVerbalMappedCourse, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT c.id, COALESCE(c.code, ''), COALESCE(c.name, ''), c.subject_id,
+		       COALESCE(sub.code, ''), COALESCE(sub.name, ''), c.cycle_id,
+		       CASE WHEN m.merge_group_id IS NOT NULL THEN COALESCE(g.level, c.level) ELSE c.level END,
+		       c.root_course_group_id,
+		       CASE WHEN m.merge_group_id IS NOT NULL THEN COALESCE(g.sit_in_rule_id, rcg.sit_in_rule_id) ELSE rcg.sit_in_rule_id END,
+		       m.merge_group_id, m.policy_rule, COALESCE(g.name, ''),
+		       count(member.course_id) OVER (PARTITION BY m.id)
+		FROM sat_verbal_policy_mappings m
+		LEFT JOIN course_merge_group_members member ON member.group_id = m.merge_group_id
+		LEFT JOIN course_merge_groups g ON g.id = m.merge_group_id
+		LEFT JOIN courses c ON c.id = COALESCE(m.course_id, member.course_id)
+		LEFT JOIN subjects sub ON sub.id = c.subject_id
+		LEFT JOIN root_course_groups rcg ON rcg.id = c.root_course_group_id
+		WHERE m.active = true
+		ORDER BY m.rule_id, member.position
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SatVerbalMappedCourse
+	for rows.Next() {
+		var item SatVerbalMappedCourse
+		var members int
+		c := &item.Course
+		if err := rows.Scan(&c.ID, &c.Code, &c.Name, &c.SubjectID, &c.SubjectCode, &c.SubjectName,
+			&c.CycleID, &c.Level, &c.RootCourseGroupID, &c.SitInRuleID, &c.MergeGroupID,
+			&item.PolicyRule, &item.MergeGroupName, &members); err != nil {
+			return nil, err
+		}
+		if c.MergeGroupID.Valid && members != 2 {
+			return nil, fmt.Errorf("merged course target must contain exactly two source courses")
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
 
 type SatVerbalPolicyCourseMapping struct {
 	ID                pgtype.UUID        `json:"id"`

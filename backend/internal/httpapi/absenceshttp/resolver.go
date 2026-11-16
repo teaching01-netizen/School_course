@@ -556,6 +556,8 @@ type sitInResolveOptions struct {
 	// A non-nil selection resolves all priorities for submit, checking expected
 	// attendance only for these IDs. Nil keeps the discovery behavior.
 	selectedSessionIDs []pgtype.UUID
+	targetCourseID     pgtype.UUID
+	policies           []byte
 }
 
 func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, options sitInResolveOptions) (*SitInResult, error) {
@@ -595,7 +597,12 @@ func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wco
 			break
 		}
 	}
-	autoEnabled, err := automaticSitInEnabled(ctx, q, subjectID, rootCourseGroupID, mergeGroupID)
+	settings, err := q.AppSettingsGetWithPolicies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("policy lookup: %w", err)
+	}
+	options.policies = settings.AbsencePolicies
+	autoEnabled, err := automaticSitInEnabledFromJSON(options.policies, subjectID, rootCourseGroupID, mergeGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +614,7 @@ func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wco
 	if err != nil {
 		return nil, fmt.Errorf("active sit-in sessions lookup: %w", err)
 	}
-	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateTo, instituteTZ, options.afterPriorityLevel, options.studentFacing, blockedSitInSessionIDs, options.selectedSessionIDs != nil); err != nil {
+	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateTo, instituteTZ, options, blockedSitInSessionIDs); err != nil {
 		return nil, err
 	} else if mapped != nil {
 		if err := options.filterConflicts(ctx, q, student.ID, mapped, instituteTZ); err != nil {
@@ -669,7 +676,7 @@ func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wco
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}
 
-	win := loadScopeWindowWeeks(ctx, q, mergeScope.ID, hasMergeScope, missedCourse.RootCourseGroupID)
+	win := scopeWindowWeeksFromPolicies(options.policies, mergeScope, hasMergeScope, missedCourse.RootCourseGroupID)
 	cutoff := time.Time{}
 	if win > 0 {
 		cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
@@ -788,7 +795,7 @@ func resolveMappedSatVerbalSitIn(
 	afterPriorityLevel int,
 	studentFacing bool,
 ) (*SitInResult, error) {
-	return resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, afterPriorityLevel, studentFacing, nil, false)
+	return resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, sitInResolveOptions{afterPriorityLevel: afterPriorityLevel, studentFacing: studentFacing}, nil)
 }
 
 func resolveMappedSatVerbalSitInWithBlockedSessions(
@@ -800,10 +807,8 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 	dateFrom time.Time,
 	dateTo time.Time,
 	instituteTZ string,
-	afterPriorityLevel int,
-	studentFacing bool,
+	options sitInResolveOptions,
 	blockedSitInSessionIDs map[string]struct{},
-	includeAllPriorities bool,
 ) (*SitInResult, error) {
 	mapping, err := q.SatVerbalPolicyMappingGetActiveByCourse(ctx, courseID)
 	if err != nil {
@@ -818,7 +823,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		return nil, fmt.Errorf("SAT Verbal policy rule parse: %w", err)
 	}
 
-	activeMappings, err := q.SatVerbalPolicyMappingsList(ctx)
+	activeMappings, err := q.SatVerbalMappedCourses(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("SAT Verbal mapping list lookup: %w", err)
 	}
@@ -830,27 +835,12 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		if err != nil {
 			return nil, fmt.Errorf("SAT Verbal mapped policy rule parse: %w", err)
 		}
-		courses, err := satVerbalMappedCourses(ctx, q, active)
-		if err != nil {
-			return nil, fmt.Errorf("SAT Verbal mapped course lookup: %w", err)
+		course := active.Course
+		if course.MergeGroupID.Valid {
+			mergeGroupNames[course.MergeGroupID.String()] = active.MergeGroupName
 		}
-		if active.MergeGroupID.Valid {
-			mergeGroupID, idErr := uuidString(active.MergeGroupID)
-			if idErr != nil {
-				return nil, fmt.Errorf("SAT Verbal mapped merge group ID: %w", idErr)
-			}
-			if _, seen := mergeGroupNames[mergeGroupID]; !seen {
-				mergeGroup, groupErr := q.CourseMergeGroupGet(ctx, active.MergeGroupID)
-				if groupErr != nil {
-					return nil, fmt.Errorf("SAT Verbal mapped merge group lookup: %w", groupErr)
-				}
-				mergeGroupNames[mergeGroupID] = mergeGroup.Name
-			}
-		}
-		for _, course := range courses {
-			mappedCourses = append(mappedCourses, satVerbalMappedCourse{Rule: activeRule, Course: course})
-			allCourses = append(allCourses, course)
-		}
+		mappedCourses = append(mappedCourses, satVerbalMappedCourse{Rule: activeRule, Course: course})
+		allCourses = append(allCourses, course)
 	}
 
 	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
@@ -870,9 +860,13 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		return nil, fmt.Errorf("SAT Verbal mapped course not found for absence course")
 	}
 
-	settings, err := q.AppSettingsGetWithPolicies(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("policy lookup: %w", err)
+	policies := options.policies
+	if policies == nil {
+		settings, err := q.AppSettingsGetWithPolicies(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("policy lookup: %w", err)
+		}
+		policies = settings.AbsencePolicies
 	}
 	subjectIDStr, _ := uuidString(missedCourse.SubjectID)
 	rootIDStr := ""
@@ -887,7 +881,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 	} else if ok {
 		mergeIDStr, _ = uuidString(scope.ID)
 	}
-	win := subjectWindowWeeksWithMerge(settings.AbsencePolicies, subjectIDStr, rootIDStr, mergeIDStr)
+	win := subjectWindowWeeksWithMerge(policies, subjectIDStr, rootIDStr, mergeIDStr)
 	cutoff := time.Time{}
 	if win > 0 {
 		cutoff = time.Now().Add(time.Duration(win) * 7 * 24 * time.Hour)
@@ -896,7 +890,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 	// Inactive classes may not be sit-in targets; the missed course itself
 	// was resolved above from the unfiltered pool.
 	activeAll := allCourses
-	if studentFacing {
+	if options.studentFacing {
 		activeAll, err = filterActiveSitInCourses(ctx, q, allCourses)
 		if err != nil {
 			return nil, err
@@ -919,7 +913,8 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 
 	loadedSessions := make(map[pgtype.UUID][]sqldb.SessionInRange)
 	return resolveSatVerbalPolicy(ctx, satVerbalResolveInput{
-		IncludeAllPriorities:   includeAllPriorities,
+		IncludeAllPriorities:   options.selectedSessionIDs != nil,
+		SelectedTargetCourseID: options.targetCourseID,
 		Rule:                   &rule,
 		MappedCourses:          activeMapped,
 		MissedCourse:           missedCourse,
@@ -930,7 +925,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		Cutoff:                 cutoff,
 		RequestTime:            time.Now(),
 		InstituteTZ:            instituteTZ,
-		AfterPriorityLevel:     afterPriorityLevel,
+		AfterPriorityLevel:     options.afterPriorityLevel,
 		BlockedSitInSessionIDs: blockedSitInSessionIDs,
 		LoadSessions: func(ctx context.Context, targetCourseID pgtype.UUID) ([]sqldb.SessionInRange, error) {
 			if sessions, ok := loadedSessions[targetCourseID]; ok {
@@ -944,28 +939,6 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 			return sessions, nil
 		},
 	})
-}
-
-func satVerbalMappedCourses(ctx context.Context, q *sqldb.Queries, mapping sqldb.SatVerbalPolicyCourseMapping) ([]sqldb.SubjectCourseV2, error) {
-	if !mapping.MergeGroupID.Valid {
-		return []sqldb.SubjectCourseV2{satVerbalCourseFromMapping(mapping)}, nil
-	}
-	memberIDs, err := q.CourseMergeGroupCourseIDs(ctx, mapping.MergeGroupID)
-	if err != nil {
-		return nil, err
-	}
-	if len(memberIDs) != 2 {
-		return nil, fmt.Errorf("merged course target must contain exactly two source courses")
-	}
-	courses := make([]sqldb.SubjectCourseV2, 0, len(memberIDs))
-	for _, memberID := range memberIDs {
-		course, err := q.CourseSubjectByID(ctx, memberID)
-		if err != nil {
-			return nil, err
-		}
-		courses = append(courses, course)
-	}
-	return courses, nil
 }
 
 func decodeSatVerbalMappedRule(raw []byte) (satVerbalCourseRule, error) {
@@ -1239,14 +1212,7 @@ func loadScopeWindowWeeks(ctx context.Context, q *sqldb.Queries, mergeGroupID pg
 	if err != nil {
 		return 0
 	}
-	if hasMergeScope {
-		if id, idErr := uuidString(mergeGroupID); idErr == nil {
-			if weeks, ok := mergeGroupWindowWeeks(settings.AbsencePolicies, id); ok {
-				return weeks
-			}
-		}
-	}
-	return loadRootGroupWindowWeeksFromPolicies(settings.AbsencePolicies, rootCourseGroupID)
+	return scopeWindowWeeksFromPolicies(settings.AbsencePolicies, sqldb.CourseMergeGroupScopeForCourseRow{ID: mergeGroupID}, hasMergeScope, rootCourseGroupID)
 }
 
 func loadRootGroupWindowWeeksFromPolicies(policies []byte, rootCourseGroupID pgtype.UUID) int {
@@ -1288,15 +1254,6 @@ func loadRootGroupWindowWeeks(ctx context.Context, q *sqldb.Queries, rootCourseG
 		return 0
 	}
 	return rootGroupWindowWeeks(settings.AbsencePolicies, id)
-}
-
-func automaticSitInEnabled(ctx context.Context, q *sqldb.Queries, subjectID, rootCourseGroupID, mergeGroupID pgtype.UUID) (bool, error) {
-	settings, err := q.AppSettingsGetWithPolicies(ctx)
-	if err != nil {
-		return false, fmt.Errorf("policy lookup: %w", err)
-	}
-
-	return automaticSitInEnabledFromJSON(settings.AbsencePolicies, subjectID, rootCourseGroupID, mergeGroupID)
 }
 
 func automaticSitInEnabledFromJSON(raw []byte, subjectID, rootCourseGroupID, mergeGroupID pgtype.UUID) (bool, error) {
