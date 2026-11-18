@@ -112,6 +112,99 @@ func TestCourseApply_CommitsAggregateMetadataTogether(t *testing.T) {
 	}
 }
 
+func TestCourseApplyPreservesSessionsWhenScheduleTeacherIsMissing(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)
+	q := sqldb.New(pool)
+	applier := newTestCourseApplier(pool, q, master.source)
+	ctx := t.Context()
+	existing := normalize.LegacySchedule{LegacyScheduleID: "existing-" + suffix, Date: "2026-08-05", Begin: "11:00", End: "12:00"}
+	incoming := normalize.LegacySchedule{LegacyScheduleID: "incoming-" + suffix, Date: "2026-08-06", Begin: "13:00", End: "14:00"}
+	request.Aggregate.Schedules = []normalize.LegacySchedule{existing}
+	initialSyncAt := request.ObservedAt
+	if _, err := applier.Apply(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+
+	teacherRef := request.Aggregate.Course.TeacherID
+	request.Aggregate.Course.TeacherID = ""
+	request.Aggregate.Course.Name = "Updated course name"
+	request.Aggregate.Schedules = []normalize.LegacySchedule{incoming}
+	for range 2 {
+		request.ObservationGeneration++
+		request.ObservedAt = request.ObservedAt.Add(time.Hour)
+		result, err := applier.Apply(ctx, request)
+		if err != nil || result.SkippedSessions != 1 {
+			t.Fatalf("teacherless apply = %+v, %v; want one skipped schedule and a successful partial apply", result, err)
+		}
+	}
+
+	var name, quality string
+	var seenAt, syncedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT name, legacy_last_seen_at, legacy_last_synced_at FROM courses WHERE id=$1`, courseID).
+		Scan(&name, &seenAt, &syncedAt); err != nil {
+		t.Fatal(err)
+	}
+	checkQuality := func(want string) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT quality FROM legacy_entity_snapshots WHERE source=$1 AND entity_type='course' AND external_id=$2`, master.source, request.LegacyCourseID).Scan(&quality); err != nil {
+			t.Fatal(err)
+		}
+		if quality != want {
+			t.Fatalf("snapshot quality = %q, want %q", quality, want)
+		}
+	}
+	checkQuality("partial")
+	if name != "Updated course name" {
+		t.Fatalf("course name = %q, want metadata update despite skipped schedules", name)
+	}
+	if !seenAt.Equal(request.ObservedAt) || !syncedAt.Equal(initialSyncAt) {
+		t.Fatalf("seen at %v, synced at %v; want partial observation at %v and unchanged successful sync at %v",
+			seenAt, syncedAt, request.ObservedAt, initialSyncAt)
+	}
+
+	checkSessions := func(wantExisting, wantIncoming bool) {
+		t.Helper()
+		var hasExisting, hasIncoming bool
+		if err := pool.QueryRow(ctx, `SELECT
+			EXISTS (SELECT 1 FROM sessions WHERE course_id=$1 AND legacy_schedule_id=$2 AND deleted_at IS NULL),
+			EXISTS (SELECT 1 FROM sessions WHERE course_id=$1 AND legacy_schedule_id=$3 AND deleted_at IS NULL)`,
+			courseID, existing.LegacyScheduleID, incoming.LegacyScheduleID,
+		).Scan(&hasExisting, &hasIncoming); err != nil {
+			t.Fatal(err)
+		}
+		if hasExisting != wantExisting || hasIncoming != wantIncoming {
+			t.Fatalf("live sessions: existing=%v incoming=%v, want %v/%v", hasExisting, hasIncoming, wantExisting, wantIncoming)
+		}
+	}
+	checkSessions(true, false)
+
+	var open int
+	openScheduleTeacherConflicts := func(want int) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM legacy_sync_conflicts
+			WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:schedule_teacher' AND status='open'`,
+			request.LegacyCourseID,
+		).Scan(&open); err != nil {
+			t.Fatal(err)
+		}
+		if open != want {
+			t.Fatalf("open schedule teacher conflicts = %d, want %d", open, want)
+		}
+	}
+	openScheduleTeacherConflicts(1)
+
+	request.Aggregate.Course.TeacherID = teacherRef
+	request.ObservationGeneration++
+	request.ObservedAt = request.ObservedAt.Add(time.Hour)
+	if result, err := applier.Apply(ctx, request); err != nil || result.SkippedSessions != 0 {
+		t.Fatalf("healed apply = %+v, %v; want all schedules applied", result, err)
+	}
+	checkQuality("ok")
+	checkSessions(true, true)
+	openScheduleTeacherConflicts(0)
+}
+
 func TestCourseApplyDisablesBookingWhenSubjectIsRemoved(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, true)
@@ -804,12 +897,18 @@ func TestCourseApply_HonorsConfiguredTimezone(t *testing.T) {
 
 // TestCourseApply_CodeCollisionRecordsSyncConflict pins CB-08: when a source
 // course code change collides with an existing local course's unique code,
-// the apply succeeds with the retained code, a conflict is recorded, and
-// quality is 'partial'.
+// the apply succeeds with the retained code and records a conflict.
 func TestCourseApply_CodeCollisionRecordsSyncConflict(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)
-	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
+	cfg := pool.Config()
+	cfg.MaxConns = 1
+	singleConnPool, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(singleConnPool.Close)
+	applier := newTestCourseApplier(singleConnPool, sqldb.New(singleConnPool), master.source)
 	if _, err := applier.Apply(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -822,7 +921,9 @@ func TestCourseApply_CodeCollisionRecordsSyncConflict(t *testing.T) {
 	originalCode := request.Aggregate.Course.Code
 	request.Aggregate.Course.Code = takenCode
 	request.ObservedAt = request.ObservedAt.Add(time.Hour)
-	result, err := applier.Apply(t.Context(), request)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := applier.Apply(ctx, request)
 	if err != nil {
 		t.Fatalf("code collision apply failed: %v", err)
 	}

@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+
+	sqldb "warwick-institute/internal/db"
 )
 
 var (
@@ -59,6 +61,97 @@ func mainLookupTestPool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	return pool
+}
+
+func TestDetectorLeadershipRecoversAfterConnectionLoss(t *testing.T) {
+	pool := mainLookupTestPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	first := detectorLeadership{pool: pool}
+	second := detectorLeadership{pool: pool}
+	defer first.close()
+	defer second.close()
+
+	assertLeader := func(worker *detectorLeadership, want bool) {
+		t.Helper()
+		if got, err := worker.isLeader(ctx); err != nil || got != want {
+			t.Fatalf("leadership = %v, %v; want %v, nil", got, err, want)
+		}
+	}
+	assertLeader(&first, true)
+	assertLeader(&first, true)
+	assertLeader(&second, false)
+	if got := pool.Stat().AcquiredConns(); got != 1 {
+		t.Fatalf("acquired connections = %d, want one leader connection", got)
+	}
+
+	var terminated bool
+	if err := pool.QueryRow(ctx, `SELECT pg_terminate_backend($1, 5000)`, int32(first.conn.Conn().PgConn().PID())).Scan(&terminated); err != nil || !terminated {
+		t.Fatalf("terminate leader = %v, %v", terminated, err)
+	}
+	if got, err := first.isLeader(ctx); got || err == nil {
+		t.Fatalf("terminated connection reported leadership = %v, %v", got, err)
+	}
+	assertLeader(&first, true)
+	assertLeader(&second, false)
+
+	first.close()
+	assertLeader(&second, true)
+}
+
+func TestFailAbandonedFullRunRequiresNoRunningFullJob(t *testing.T) {
+	pool := mainLookupTestPool(t)
+	ctx := t.Context()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	q := sqldb.New(tx)
+	var jobID string
+	if err := tx.QueryRow(ctx, `INSERT INTO legacy_sync_jobs (job_type, status, locked_until)
+		VALUES ('legacy_full_reconcile', 'running', now() - interval '1 second') RETURNING id::text`).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	run, err := q.SyncRunCreate(ctx, "full_sweep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.LegacySyncRunProgressUpsert(ctx, sqldb.LegacySyncRunProgressUpsertParams{
+		RunID: run.ID, Phase: "importing_student_profiles", ProcessedEntities: 7, TotalEntities: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	assertRunState := func(wantStatus, wantPhase string) {
+		t.Helper()
+		var status string
+		var finished, hasError bool
+		if err := tx.QueryRow(ctx, `SELECT status, completed_at IS NOT NULL, last_error IS NOT NULL
+			FROM legacy_sync_runs WHERE id=$1`, run.ID).Scan(&status, &finished, &hasError); err != nil {
+			t.Fatal(err)
+		}
+		wantFinished := wantStatus == "failed"
+		if status != wantStatus || finished != wantFinished || hasError != wantFinished {
+			t.Fatalf("run = %q, finished=%v, has error=%v; want %q / %v / %v", status, finished, hasError, wantStatus, wantFinished, wantFinished)
+		}
+		progress, err := q.LegacySyncRunProgressGet(ctx, run.ID)
+		if err != nil || progress.Phase != wantPhase || progress.ProcessedEntities != 7 || progress.TotalEntities != 10 {
+			t.Fatalf("progress = %+v, %v; want phase %q and original counters", progress, err, wantPhase)
+		}
+	}
+	if err := q.LegacySyncFailAbandonedFullRuns(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertRunState("running", "importing_student_profiles")
+
+	if _, err := tx.Exec(ctx, `UPDATE legacy_sync_jobs SET status='queued' WHERE id=$1`, jobID); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.LegacySyncFailAbandonedFullRuns(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertRunState("failed", "failed")
 }
 
 // TestLinkedCourseLookup_ExcludesDeletedAndUnlinkedCourses pins the

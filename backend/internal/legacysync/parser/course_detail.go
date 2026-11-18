@@ -33,6 +33,7 @@ var CourseDetailContract = PageContract{
 const maxCourseDetailRows = 10_000
 
 var courseHoursValueRe = regexp.MustCompile(`^[0-9]{1,4}:[0-9]{2}$`)
+var remainingHoursValueRe = regexp.MustCompile(`^-?[0-9]{1,4}:-?[0-9]{2}$`)
 
 // ParseCourseDetail parses the schedule table of a course detail page.
 // Course-level fields (ID/code/name) are NOT on this page; the caller
@@ -79,7 +80,7 @@ func ParseCourseDetail(pageHTML string) (*normalize.LegacyCourseAggregate, error
 			return nil, drift(CourseDetailContract, fmt.Sprintf("row has %d cells, want %d", len(tds), len(headers)))
 		}
 		if normalize.NormalizeText(textOf(tds[columns["Date"]])) == "" {
-			if isCourseDetailSummaryRow(tds, columns) {
+			if isCourseDetailSummaryRow(tr, tds, columns) {
 				continue
 			}
 			return nil, drift(CourseDetailContract, "blank-date row is not a recognized summary footer")
@@ -167,30 +168,26 @@ func ParseCourseDetail(pageHTML string) (*normalize.LegacyCourseAggregate, error
 	return &agg, nil
 }
 
-func isCourseDetailSummaryRow(tds []*html.Node, columns map[string]int) bool {
-	dateColumn, ok := columns["Date"]
-	if len(tds) == 0 || !ok || dateColumn >= len(tds) || normalize.NormalizeText(textOf(tds[dateColumn])) != "" {
+func isCourseDetailSummaryRow(row *html.Node, tds []*html.Node, columns map[string]int) bool {
+	if hasAttr(row, "data-schedule-id") || rowScheduleIDFromLink(row) != "" {
 		return false
 	}
-	labelFound := false
-	for _, td := range tds {
-		text := normalize.NormalizeText(textOf(td))
-		if text == "" {
-			continue
-		}
-		switch text {
-		case "Confirmed hours:", "Booked hours:", "Time remaining:":
-			if labelFound {
-				return false
-			}
-			labelFound = true
-		default:
-			if !courseHoursValueRe.MatchString(text) {
-				return false
-			}
+	labelCol, durationCol := columns["End"], columns["Duration"]
+	for i, td := range tds {
+		if i != labelCol && i != durationCol && normalize.NormalizeText(textOf(td)) != "" {
+			return false
 		}
 	}
-	return labelFound
+	value := normalize.NormalizeText(textOf(tds[durationCol]))
+	switch normalize.NormalizeText(textOf(tds[labelCol])) {
+	case "Confirmed hours:", "Booked hours:":
+		return courseHoursValueRe.MatchString(value)
+	case "Time remaining:":
+		// The legacy footer emits signed components, for example 00:-30.
+		return remainingHoursValueRe.MatchString(value)
+	default:
+		return false
+	}
 }
 
 // courseScheduleLinkRe matches the stable schedule identity embedded in the

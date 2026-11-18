@@ -312,7 +312,6 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 	_, err = s.scheduleApp.Apply(ctx, apply.ScheduleApplyRequest{
 		CourseID:                 linked.courseID,
 		LegacyCourseID:           legacyID,
-		TeacherID:                linked.teacherID,
 		Aggregate:                *aggregate,
 		ObservedAt:               observedAt,
 		ObservationGeneration:    observationGeneration,

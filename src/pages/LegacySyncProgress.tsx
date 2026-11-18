@@ -19,6 +19,11 @@ export default function LegacySyncProgress({ run, queue }: LegacySyncProgressPro
   const isFailed = run.status === "failed";
   const isComplete = run.status === "completed";
   const hasQueuedRefreshes = queue.queued > 0 || queue.running > 0;
+  const reconcileStatus = isFailed
+    ? "The full reconciliation stopped."
+    : isComplete
+      ? "The full reconciliation finished."
+      : "The full reconciliation is still running.";
 
   return (
     <section className="border border-[var(--color-wi-primary)]/30 bg-white p-5" aria-labelledby="live-import-heading" aria-live="polite">
@@ -76,7 +81,7 @@ export default function LegacySyncProgress({ run, queue }: LegacySyncProgressPro
       ) : null}
       {hasQueuedRefreshes ? (
         <p className="mt-4 border border-[var(--color-wi-amber)]/40 bg-[var(--color-wi-amber-bg)] px-3 py-2 text-sm text-[var(--color-wi-text)]" role="status">
-          {isComplete ? "The full reconciliation finished." : "The full reconciliation is still running."} {count(queue.queued)} course refreshes are still queued{queue.running > 0 ? ` and ${count(queue.running)} running` : ""}; the worker will import those course details next.
+          {reconcileStatus} {count(queue.queued)} course refreshes are still queued{queue.running > 0 ? ` and ${count(queue.running)} running` : ""}; the worker will import those course details next.
         </p>
       ) : null}
     </section>

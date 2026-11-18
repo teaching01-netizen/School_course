@@ -264,11 +264,32 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 	if err := a.lockScheduleResources(ctx, tx, qtx, request); err != nil {
 		return 0, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_source_hash=$1, legacy_last_seen_at=$2, legacy_last_synced_at=$2, source_kind='legacy', updated_at=now() WHERE id=$3`, sourceHash, request.ObservedAt, request.CourseID); err != nil {
+	missingTeacher := len(request.Aggregate.Schedules) > 0 && !request.TeacherID.Valid
+	if _, err := tx.Exec(ctx, `UPDATE courses
+		SET legacy_source_hash=$1, legacy_last_seen_at=$2,
+		    legacy_last_synced_at=CASE WHEN $4::boolean THEN legacy_last_synced_at ELSE $2 END,
+		    source_kind='legacy', updated_at=now() WHERE id=$3`,
+		sourceHash, request.ObservedAt, request.CourseID, missingTeacher); err != nil {
 		return 0, fmt.Errorf("update legacy course metadata: %w", err)
 	}
 	if err := a.hitFault("after_course_metadata_upsert"); err != nil {
 		return 0, err
+	}
+	if missingTeacher {
+		// Both series and sessions need a teacher. Leave the existing schedule
+		// and its missing-observation counters intact until it can be applied.
+		if _, err := qtx.ConflictInsert(ctx, sqldb.ConflictInsertParams{
+			EntityType:    "course",
+			ExternalID:    request.LegacyCourseID,
+			ConflictType:  "missing_reference:schedule_teacher",
+			Category:      "missing_reference",
+			SourcePayload: `{"reference_type":"teacher"}`,
+			LocalPayload:  "{}",
+			Message:       pgtype.Text{String: "Legacy schedules need a mapped teacher before they can be imported.", Valid: true},
+		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("record missing schedule teacher: %w", err)
+		}
+		return len(request.Aggregate.Schedules), nil
 	}
 	skipped := 0
 	if len(request.Aggregate.Schedules) > 0 {
@@ -276,37 +297,9 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 		if err != nil {
 			return 0, err
 		}
-		if _, err := tx.Exec(ctx, `SAVEPOINT external_series_upsert`); err != nil {
-			return 0, fmt.Errorf("savepoint external series: %w", err)
-		}
 		seriesID, err := a.ensureExternalSeries(ctx, tx, request, loc, firstRoomID)
 		if err != nil {
-			if isNotNullViolation(err) && !request.TeacherID.Valid {
-				if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT external_series_upsert`); rbErr != nil {
-					return 0, fmt.Errorf("rollback savepoint external series: %w", rbErr)
-				}
-				if _, cErr := qtx.ConflictInsert(ctx, sqldb.ConflictInsertParams{
-					EntityType:    "course",
-					ExternalID:    request.LegacyCourseID,
-					ConflictType:  "missing_reference:teacher",
-					Category:      "missing_reference",
-					SourcePayload: `{"reference_type":"teacher","series_teacher_required":true}`,
-					LocalPayload:  "{}",
-					Message:       pgtype.Text{String: fmt.Sprintf("course %s has no teacher so legacy sessions synced without an external series", request.LegacyCourseID), Valid: true},
-				}); cErr != nil && !errors.Is(cErr, pgx.ErrNoRows) {
-					return 0, fmt.Errorf("record teacherless series conflict: %w", cErr)
-				}
-				if _, ignoreErr := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='ignored', resolved_at=now() WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:teacher' AND status='open'`, request.LegacyCourseID); ignoreErr != nil {
-					return 0, fmt.Errorf("close teacherless series conflict: %w", ignoreErr)
-				}
-				seriesID = pgtype.UUID{}
-			} else {
-				return 0, err
-			}
-		} else {
-			if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT external_series_upsert`); err != nil {
-				return 0, fmt.Errorf("release savepoint external series: %w", err)
-			}
+			return 0, err
 		}
 		if err := a.hitFault("after_series_upsert"); err != nil {
 			return 0, err
@@ -456,6 +449,11 @@ func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb
 	// configured grace period before its local session is soft-deleted.
 	if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
 		return skipped, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='resolved', resolved_at=now()
+		WHERE entity_type='course' AND external_id=$1 AND conflict_type='missing_reference:schedule_teacher' AND status='open'`,
+		request.LegacyCourseID); err != nil {
+		return skipped, fmt.Errorf("resolve missing schedule teacher: %w", err)
 	}
 	return skipped, nil
 }
@@ -1015,11 +1013,6 @@ func isAvailabilityViolation(err error) bool {
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
-}
-
-func isNotNullViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23502"
 }
 
 // recordScheduleConflict stores a skipped schedule row in

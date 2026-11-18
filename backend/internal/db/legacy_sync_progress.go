@@ -6,6 +6,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// LegacySyncFailAbandonedFullRuns closes a run left behind by a worker
+// interruption. A worker claims a full-reconcile job before creating its run.
+func (q *Queries) LegacySyncFailAbandonedFullRuns(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, `
+WITH abandoned AS (
+    UPDATE legacy_sync_runs
+    SET status = 'failed', completed_at = now(),
+        last_error = 'The worker was interrupted before this reconciliation finished.'
+    WHERE mode = 'full_sweep' AND status = 'running'
+      AND NOT EXISTS (
+          SELECT 1 FROM legacy_sync_jobs
+          WHERE job_type = 'legacy_full_reconcile' AND status = 'running'
+      )
+    RETURNING id
+)
+UPDATE legacy_sync_run_progress
+SET phase = 'failed', updated_at = now()
+FROM abandoned
+WHERE run_id = abandoned.id
+`)
+	return err
+}
+
 type LegacySyncRunProgress struct {
 	RunID             pgtype.UUID
 	Phase             string

@@ -276,4 +276,26 @@ describe("Legacy sync live progress", () => {
     expect(screen.getByText("2101")).toBeInTheDocument();
     expect(screen.getByText(/course refreshes are still queued/)).toBeInTheDocument();
   });
+
+  it("reports an interrupted full reconciliation while course jobs remain queued", async () => {
+    const runError = "The worker was interrupted before this reconciliation finished.";
+    const getHealth = mockApiJson.getMockImplementation()!;
+    mockApiJson.mockImplementation(async (path: string) => {
+      const response = await getHealth(path);
+      if (path !== "/api/v1/admin/legacy-sync/health") return response;
+      return {
+        ...response,
+        latest_run: {
+          ...response.latest_run,
+          status: "failed",
+          last_error: runError,
+          progress: { ...response.latest_run.progress, phase: "failed" },
+        },
+      };
+    });
+    renderPage();
+
+    expect(await screen.findByText(runError)).toBeInTheDocument();
+    expect(screen.getByText(/The full reconciliation stopped.*course refreshes are still queued/)).toBeInTheDocument();
+  });
 });

@@ -52,7 +52,7 @@ func listLinkedLegacyCoursesWithCooldown(ctx context.Context, pool *pgxpool.Pool
 	rows, err := pool.Query(ctx, `SELECT legacy_course_id FROM courses
 		WHERE legacy_course_id IS NOT NULL
 		  AND NOT (legacy_archived AND legacy_last_synced_at IS NOT NULL)
-		  AND (legacy_last_synced_at IS NULL OR legacy_last_synced_at < now() - $1::interval)
+		  AND COALESCE(GREATEST(legacy_last_synced_at, legacy_last_seen_at), '-infinity') < now() - $1::interval
 		ORDER BY legacy_course_id`, refreshInterval.String())
 	if err != nil {
 		return nil, err
@@ -70,12 +70,9 @@ func listLinkedLegacyCoursesWithCooldown(ctx context.Context, pool *pgxpool.Pool
 }
 
 // linkedCourse describes the local course currently linked to a legacy
-// course id, plus the bookkeeping the sync paths read: the teacher mapping
-// for schedule attendance, and the archive stamp + last successful sync for
-// the archived "sync once, then skip" rule.
+// course id, plus the archive stamp and last successful sync.
 type linkedCourse struct {
 	courseID       pgtype.UUID
-	teacherID      pgtype.UUID
 	legacyArchived bool
 	lastSyncedAt   pgtype.Timestamptz
 }
@@ -86,8 +83,8 @@ type linkedCourse struct {
 // can skip it instead of escalating an error.
 func findLinkedLegacyCourse(ctx context.Context, pool *pgxpool.Pool, legacyID string) (*linkedCourse, bool, error) {
 	linked := &linkedCourse{}
-	err := pool.QueryRow(ctx, `SELECT id, teacher_id, legacy_archived, legacy_last_synced_at FROM courses WHERE legacy_course_id = $1`, legacyID).
-		Scan(&linked.courseID, &linked.teacherID, &linked.legacyArchived, &linked.lastSyncedAt)
+	err := pool.QueryRow(ctx, `SELECT id, legacy_archived, legacy_last_synced_at FROM courses WHERE legacy_course_id = $1`, legacyID).
+		Scan(&linked.courseID, &linked.legacyArchived, &linked.lastSyncedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -158,12 +155,8 @@ func main() {
 	}()
 
 	q := sqldb.New(pool)
-	leaderConn, err := pool.Acquire(ctx)
-	if err != nil {
-		log.Error("legacy detector leadership connection", "error", err)
-		os.Exit(1)
-	}
-	defer leaderConn.Release()
+	leader := detectorLeadership{pool: pool}
+	defer leader.close()
 	store := jobqueue.NewPostgresStore(q)
 	policyReader := schedulepolicy.NewDBReader()
 	applier := apply.NewScheduleApplier(pool, q, "legacy_warwick", policyReader)
@@ -181,6 +174,9 @@ func main() {
 		Circuit:        client.CircuitState,
 		BudgetExceeded: client.BudgetExceeded,
 		ListCourses: func(ctx context.Context) ([]string, error) {
+			if err := q.LegacySyncFailAbandonedFullRuns(ctx); err != nil {
+				return nil, fmt.Errorf("close abandoned reconciliation: %w", err)
+			}
 			return listLinkedLegacyCourses(ctx, pool)
 		},
 		SyncCourse: syncer.syncCourse,
@@ -191,13 +187,7 @@ func main() {
 			}
 			return legacysync.RunnerControls{DetectionEnabled: control.DetectionEnabled, FetchEnabled: control.FetchEnabled && control.ApplyEnabled}, nil
 		},
-		Leader: func(ctx context.Context) (bool, error) {
-			var leader bool
-			if err := leaderConn.QueryRow(ctx, `SELECT pg_try_advisory_lock(hashtextextended('legacy-sync-detector', 0))`).Scan(&leader); err != nil {
-				return false, err
-			}
-			return leader, nil
-		},
+		Leader: leader.isLeader,
 		ProcessJob: func(ctx context.Context, job jobqueue.Job) (processErr error) {
 			if job.JobType != "legacy_full_reconcile" {
 				return fmt.Errorf("unsupported legacy job %q", job.JobType)
@@ -211,7 +201,8 @@ func main() {
 			var stats reconcile.FullReconcileStats
 			profilesApplied := 0
 			defer func() {
-				completeCtx := context.WithoutCancel(ctx)
+				completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
 				status := "completed"
 				phase := "completed"
 				lastError := pgtype.Text{}

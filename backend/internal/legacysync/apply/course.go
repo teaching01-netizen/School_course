@@ -226,7 +226,7 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 				return ScheduleApplyResult{}, fmt.Errorf("rollback course update savepoint: %w", err)
 			}
 			// Record conflict in-tx, then re-run updateCourse with the retained current code.
-			if recordErr := a.recordCourseCodeConflict(ctx, request, request.Aggregate.Course.Code, err); recordErr != nil {
+			if recordErr := a.recordCourseCodeConflict(ctx, tx, request, request.Aggregate.Course.Code, err); recordErr != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("%w (recording conflict failed: %v)", err, recordErr)
 			}
 			if _, ignoreErr := tx.Exec(ctx, `UPDATE legacy_sync_conflicts SET status='ignored', resolved_at=now() WHERE entity_type='course' AND external_id=$1 AND conflict_type='course_code_conflict' AND status='open'`, request.LegacyCourseID); ignoreErr != nil {
@@ -297,7 +297,7 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 		return ScheduleApplyResult{}, err
 	}
 	quality := "ok"
-	if skipped > 0 && !request.allowConflicts {
+	if skipped > 0 {
 		quality = "partial"
 	}
 	if _, err := qtx.SnapshotUpsert(ctx, sqldb.SnapshotUpsertParams{Source: a.source, EntityType: "course", ExternalID: request.LegacyCourseID, CanonicalData: string(canonical), SourceHash: sourceHash, ParserVersion: 1, ObservedAt: timestamp(request.ObservedAt), Quality: quality}); err != nil {
@@ -332,10 +332,8 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 }
 
 // recordCourseCodeConflict stores a native uniqueness collision (typically
-// courses_code_key) in legacy_sync_conflicts so it is actionable in the admin
-// health view. It runs on its own connection: the apply transaction is already
-// aborted. Deduplicated per open conflict and legacy course.
-func (a *CourseApplier) recordCourseCodeConflict(ctx context.Context, request CourseApplyRequest, code string, cause error) error {
+// courses_code_key) in legacy_sync_conflicts after rollback to the savepoint.
+func (a *CourseApplier) recordCourseCodeConflict(ctx context.Context, tx pgx.Tx, request CourseApplyRequest, code string, cause error) error {
 	constraint := "unknown"
 	var pgErr *pgconn.PgError
 	if errors.As(cause, &pgErr) {
@@ -351,7 +349,7 @@ func (a *CourseApplier) recordCourseCodeConflict(ctx context.Context, request Co
 		return fmt.Errorf("encode course conflict payload %s: %w", request.LegacyCourseID, err)
 	}
 	message := fmt.Sprintf("legacy course %s code %q conflicts with an existing local course (%s)", request.LegacyCourseID, code, constraint)
-	if _, err := a.pool.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO legacy_sync_conflicts (entity_type, external_id, conflict_type, category, source_payload, message, status, resolved_at)
 		SELECT 'course', $1, 'course_code_conflict', 'database_constraint', $2::jsonb, $3, 'ignored', now()
 		WHERE NOT EXISTS (
@@ -389,7 +387,7 @@ func (a *CourseApplier) updateCourse(ctx context.Context, tx pgx.Tx, request Cou
 	}
 	studentCount := len(request.Aggregate.Attendees)
 	status := strings.ToLower(strings.TrimSpace(course.Status))
-	result, err := tx.Exec(ctx, `UPDATE courses SET code=COALESCE(NULLIF($1,''), code), name=COALESCE(NULLIF($2,''), name), teacher_id=NULLIF($3::text,'')::uuid, subject_id=NULLIF($4::text,'')::uuid, student_booking_enabled=student_booking_enabled AND NULLIF($4::text,'') IS NOT NULL, hour=NULLIF($5,0), student_count=CASE WHEN $6 THEN $7 ELSE student_count END, course_type=NULLIF($8,''), legacy_status=NULLIF($9,''), legacy_expire_date=NULLIF($10,'')::date, legacy_archived=($9='archived'), legacy_source_hash=$11, legacy_last_seen_at=$12, legacy_last_synced_at=$12, source_kind='legacy', updated_at=now() WHERE id=$13`, course.Code, course.Name, uuidText(teacherID), uuidText(subjectID), hour, request.Aggregate.Attendees != nil, studentCount, course.Type, status, course.ExpireDate, sourceHash, request.ObservedAt, request.CourseID)
+	result, err := tx.Exec(ctx, `UPDATE courses SET code=COALESCE(NULLIF($1,''), code), name=COALESCE(NULLIF($2,''), name), teacher_id=NULLIF($3::text,'')::uuid, subject_id=NULLIF($4::text,'')::uuid, student_booking_enabled=student_booking_enabled AND NULLIF($4::text,'') IS NOT NULL, hour=NULLIF($5,0), student_count=CASE WHEN $6 THEN $7 ELSE student_count END, course_type=NULLIF($8,''), legacy_status=NULLIF($9,''), legacy_expire_date=NULLIF($10,'')::date, legacy_archived=($9='archived'), legacy_source_hash=$11, legacy_last_seen_at=$12, source_kind='legacy', updated_at=now() WHERE id=$13`, course.Code, course.Name, uuidText(teacherID), uuidText(subjectID), hour, request.Aggregate.Attendees != nil, studentCount, course.Type, status, course.ExpireDate, sourceHash, request.ObservedAt, request.CourseID)
 	if err != nil {
 		return fmt.Errorf("update legacy course %s: %w", request.LegacyCourseID, err)
 	}

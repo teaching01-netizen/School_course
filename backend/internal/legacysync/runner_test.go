@@ -178,6 +178,44 @@ func TestRunnerNonLeaderStillProcessesQueuedJobs(t *testing.T) {
 	}
 }
 
+func TestRunnerDrainsQueueWhenDetectorLeadershipFails(t *testing.T) {
+	ctx := context.Background()
+	store := jobqueue.NewMemoryStore()
+	_, err := store.Enqueue(ctx, jobqueue.EnqueueRequest{
+		JobType: "legacy_refresh_course", ExternalID: "7306", UniqueKey: "legacy:course:7306",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detectorErr := errors.New("detector connection closed")
+	var synced []string
+	runner, err := NewRunner(RunnerConfig{
+		Store:    store,
+		WorkerID: "test-worker",
+		ListCourses: func(context.Context) ([]string, error) {
+			t.Fatal("course detection ran without leadership")
+			return nil, nil
+		},
+		SyncCourse: func(_ context.Context, id string) error {
+			synced = append(synced, id)
+			return nil
+		},
+		Leader: func(context.Context) (bool, error) { return false, detectorErr },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.cycle(ctx); !errors.Is(err, detectorErr) {
+		t.Fatalf("cycle error = %v, want detector error", err)
+	}
+	if len(synced) != 1 || synced[0] != "7306" {
+		t.Fatalf("synced courses = %v, want [7306] despite detector failure", synced)
+	}
+	if _, err := store.Claim(ctx, "verify", time.Now().Add(time.Hour), time.Minute); !errors.Is(err, jobqueue.ErrNoJobs) {
+		t.Fatalf("claim = %v, want completed queue", err)
+	}
+}
+
 type testWriter struct{ t *testing.T }
 
 func (w testWriter) Write(value []byte) (int, error) {

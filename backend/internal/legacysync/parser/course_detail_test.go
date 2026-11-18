@@ -99,10 +99,31 @@ func TestCourseDetailParser_RejectsEmptyScheduleWithoutExplicitMarker(t *testing
 	}
 }
 
+func TestCourseDetailParser_AcceptsNegativeRemainingHours(t *testing.T) {
+	row := detailRow("Sat 23 May 26", "13:00", "16:30", "03:30", "[120204] Room", "Yes", "")
+	for _, remaining := range []string{"00:-30", "-01:-30"} {
+		t.Run(remaining, func(t *testing.T) {
+			footer := detailRow("", "", "Time remaining:", remaining, "", "", "")
+			agg, err := ParseCourseDetail(detailPage(row, footer))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(agg.Schedules) != 1 || agg.Schedules[0].Begin != "13:00" || agg.Schedules[0].End != "16:30" {
+				t.Fatalf("parsed schedules = %+v, want the schedule row only", agg.Schedules)
+			}
+		})
+	}
+}
+
 func TestCourseDetailParser_RejectsUnknownEmptyAndFooterRows(t *testing.T) {
 	for name, page := range map[string]string{
-		"unknown placeholder": detailPage(`<tr><td colspan="7">No classes</td></tr>`),
-		"unknown footer":      detailPage(`<tr><td></td><td></td><td>Schedule status:</td><td>Pending</td><td></td><td></td><td></td></tr>`),
+		"unknown placeholder":                   detailPage(`<tr><td colspan="7">No classes</td></tr>`),
+		"unknown footer":                        detailPage(`<tr><td></td><td></td><td>Schedule status:</td><td>Pending</td><td></td><td></td><td></td></tr>`),
+		"negative footer without schedule rows": detailPage(detailRow("", "", "Time remaining:", "00:-30", "", "", "")),
+		"negative footer label with schedule identity": detailPage(
+			detailRow("Sat 23 May 26", "13:00", "16:30", "03:30", "", "", ""),
+			`<tr data-schedule-id="123"><td></td><td></td><td>Time remaining:</td><td>00:-30</td><td></td><td></td><td></td></tr>`,
+		),
 		"marker mixed with schedule": detailPage(
 			`<tr><td colspan="7">No schedules yet.</td></tr>` +
 				`<tr><td>Sat 23 May 26</td><td>13:00</td><td>16:20</td><td>03:20</td><td>Room</td><td>Yes</td><td>Teacher</td></tr>`,

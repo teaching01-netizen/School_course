@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"warwick-institute/internal/jobqueue"
@@ -125,40 +126,42 @@ func (r *Runner) cycle(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read sync controls: %w", err)
 	}
-	if controls.DetectionEnabled {
-		if r.cfg.Leader != nil {
-			leader, err := r.cfg.Leader(ctx)
-			if err != nil {
-				return fmt.Errorf("check legacy detector leadership: %w", err)
-			}
-			if !leader {
-				return r.processAvailable(ctx, controls)
-			}
-		}
-		// Fetch disabled pauses enqueue entirely: anything queued now would
-		// just wait for a fetch window, and detection feeds the same queue.
-		enqueueAllowed := controls.FetchEnabled && r.shouldEnqueue()
-		if !enqueueAllowed {
-			r.cfg.Logger.Info("skipping legacy enqueue: fetch disabled, circuit open, or budget exceeded")
-		} else if err := r.enqueueLinkedCourses(ctx); err != nil {
-			return err
-		}
-		if r.cfg.Detect != nil && enqueueAllowed {
-			requests, err := r.cfg.Detect(ctx)
-			if err != nil {
-				return fmt.Errorf("detect legacy changes: %w", err)
-			}
-			for _, request := range requests {
-				if _, err := r.cfg.Store.Enqueue(ctx, request); err != nil {
-					return fmt.Errorf("enqueue detected legacy change: %w", err)
-				}
-			}
-		}
-	}
-	if !controls.FetchEnabled {
+	detectionErr := r.detectChanges(ctx, controls)
+	return errors.Join(detectionErr, r.processAvailable(ctx, controls))
+}
+
+func (r *Runner) detectChanges(ctx context.Context, controls RunnerControls) error {
+	if !controls.DetectionEnabled {
 		return nil
 	}
-	return r.processAvailable(ctx, controls)
+	if !controls.FetchEnabled || !r.shouldEnqueue() {
+		r.cfg.Logger.Info("skipping legacy enqueue: fetch disabled, circuit open, or budget exceeded")
+		return nil
+	}
+	if r.cfg.Leader != nil {
+		leader, err := r.cfg.Leader(ctx)
+		if err != nil {
+			return fmt.Errorf("check legacy detector leadership: %w", err)
+		}
+		if !leader {
+			return nil
+		}
+	}
+	if err := r.enqueueLinkedCourses(ctx); err != nil {
+		return err
+	}
+	if r.cfg.Detect != nil {
+		requests, err := r.cfg.Detect(ctx)
+		if err != nil {
+			return fmt.Errorf("detect legacy changes: %w", err)
+		}
+		for _, request := range requests {
+			if _, err := r.cfg.Store.Enqueue(ctx, request); err != nil {
+				return fmt.Errorf("enqueue detected legacy change: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (r *Runner) processAvailable(ctx context.Context, controls RunnerControls) error {
@@ -174,15 +177,18 @@ func (r *Runner) processAvailable(ctx context.Context, controls RunnerControls) 
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var (
-		wg       sync.WaitGroup
-		errOnce  sync.Once
-		firstErr error
+		wg        sync.WaitGroup
+		errOnce   sync.Once
+		firstErr  error
+		completed atomic.Int64
 	)
 	for i := 0; i < r.cfg.Concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := r.drainJobs(workCtx, controls); err != nil {
+			count, err := r.drainJobs(workCtx)
+			completed.Add(count)
+			if err != nil {
 				errOnce.Do(func() {
 					firstErr = err
 					cancel()
@@ -191,30 +197,35 @@ func (r *Runner) processAvailable(ctx context.Context, controls RunnerControls) 
 		}()
 	}
 	wg.Wait()
+	if count := completed.Load(); count > 0 {
+		r.cfg.Logger.Info("legacy sync jobs completed", "count", count)
+	}
 	return firstErr
 }
 
 // drainJobs claims and processes jobs until the queue is empty, the context
 // is done, or a hard store error occurs.
-func (r *Runner) drainJobs(ctx context.Context, controls RunnerControls) error {
+func (r *Runner) drainJobs(ctx context.Context) (int64, error) {
+	var completed int64
 	for {
 		job, claimErr := r.cfg.Store.Claim(ctx, r.cfg.WorkerID, r.cfg.Now().UTC(), r.cfg.Lease)
 		if errors.Is(claimErr, jobqueue.ErrNoJobs) {
-			return nil
+			return completed, nil
 		}
 		if claimErr != nil {
-			return fmt.Errorf("claim legacy job: %w", claimErr)
+			return completed, fmt.Errorf("claim legacy job: %w", claimErr)
 		}
 		if err := r.process(ctx, job); err != nil {
 			r.cfg.Logger.Error("legacy job failed", "job_id", job.ID, "job_type", job.JobType, "external_id", job.ExternalID, "error", err)
 			if retryErr := r.cfg.Store.Retry(ctx, job.ID, r.cfg.WorkerID, r.cfg.Now().UTC(), err); retryErr != nil {
-				return fmt.Errorf("retry legacy job %s: %w", job.ID, retryErr)
+				return completed, fmt.Errorf("retry legacy job %s: %w", job.ID, retryErr)
 			}
 			continue
 		}
 		if err := r.cfg.Store.Complete(ctx, job.ID, r.cfg.WorkerID); err != nil {
-			return fmt.Errorf("complete legacy job %s: %w", job.ID, err)
+			return completed, fmt.Errorf("complete legacy job %s: %w", job.ID, err)
 		}
+		completed++
 	}
 }
 
