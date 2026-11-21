@@ -104,6 +104,87 @@ describe("Popover", () => {
     expect(screen.getByRole("dialog")).toHaveClass("w-80", "custom-panel");
   });
 
+  it("caps the panel width to the viewport", async () => {
+    renderPopover({ contentClassName: "w-80" });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+
+    const panel = screen.getByRole("dialog");
+    const maxWidth = Number.parseFloat(panel.style.maxWidth);
+    expect(Number.isFinite(maxWidth)).toBe(true);
+    expect(maxWidth).toBeLessThanOrEqual(window.innerWidth);
+  });
+
+  it("uses the visible viewport when it is narrower than the layout viewport", async () => {
+    const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: {
+        width: 320,
+        height: 600,
+        offsetLeft: 0,
+        offsetTop: 0,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    try {
+      renderPopover({ contentClassName: "w-80" });
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole("button", { name: "Open" }));
+
+      const panel = screen.getByRole("dialog");
+      await waitFor(() => expect(panel.style.maxWidth).toBe("312px"));
+      const left = Number.parseFloat(panel.style.left);
+      expect(left).toBeGreaterThanOrEqual(4);
+      expect(left + 312).toBeLessThanOrEqual(320);
+    } finally {
+      if (original) Object.defineProperty(window, "visualViewport", original);
+      else Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });
+    }
+  });
+
+  it("portals nested popovers to the body instead of another popover panel", async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover ariaLabel="Outer popover" trigger={<button type="button">Open outer</button>}>
+        <Popover ariaLabel="Inner popover" trigger={<button type="button">Open inner</button>}>
+          <button type="button">Save inner</button>
+        </Popover>
+      </Popover>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open outer" }));
+    const outer = screen.getByRole("dialog", { name: "Outer popover" });
+    expect(outer).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open inner" }));
+    const inner = screen.getByRole("dialog", { name: "Inner popover" });
+    expect(inner).toBeInTheDocument();
+    expect(outer).not.toContainElement(inner);
+    expect(inner.parentElement).toBe(document.body);
+  });
+
+  it("keeps portal containment inside an actual modal dialog", async () => {
+    const user = userEvent.setup();
+    render(
+      <div role="dialog" aria-modal="true" aria-label="Modal dialog">
+        <Popover ariaLabel="Edit value" trigger={<button type="button">Open</button>}>
+          <button type="button">Save</button>
+        </Popover>
+      </div>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+
+    const modal = screen.getByRole("dialog", { name: "Modal dialog" });
+    const panel = screen.getByRole("dialog", { name: "Edit value" });
+    expect(modal).toContainElement(panel);
+    expect(panel.parentElement).toBe(modal);
+  });
+
   it("supports controlled open state via open/onOpenChange", async () => {
     const onOpenChange = vi.fn();
     const { rerender } = render(

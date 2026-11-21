@@ -45,6 +45,29 @@ interface PopoverProps {
 
 const GAP = 4;
 
+/** The visible viewport, which can be narrower than the layout viewport on
+ *  mobile (pinch zoom, browser UI, embedded webviews). Fixed positioning uses
+ *  layout coordinates, so offsets are applied to the visual bounds. */
+function visibleViewport() {
+  const visual = typeof window !== "undefined" ? window.visualViewport : null;
+  return {
+    left: visual?.offsetLeft ?? 0,
+    top: visual?.offsetTop ?? 0,
+    width: visual?.width ?? window.innerWidth,
+    height: visual?.height ?? window.innerHeight,
+  };
+}
+
+/**
+ * Only real modal surfaces may host the portal. A nested popover rendered
+ * inside a modal must stay in its subtree so it remains part of the modal's
+ * top layer/inert boundary. Ordinary `role="dialog"` popover panels must NOT
+ * become portal hosts: they are animated, transformed, and scrollable, so a
+ * fixed-position child would be positioned against the panel instead of the
+ * viewport, stretching and clipping the parent panel.
+ */
+const MODAL_HOST_SELECTOR = '[aria-modal="true"], dialog';
+
 /**
  * Overlay tree: every open popover registers here with the id of its nearest
  * popover ancestor (via PopoverTreeContext). Because content is portaled to
@@ -110,7 +133,11 @@ export function Popover({
   const triggerRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const parentClose = useContext(PopoverCloseContext);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [position, setPosition] = useState<{
+    top: number;
+    left: number;
+    maxWidth: number;
+  } | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const triggerId = useId();
   const panelId = useId();
@@ -160,28 +187,35 @@ export function Popover({
       const triggerEl = triggerRef.current;
       const panelEl = panelRef.current;
       if (!triggerEl || !panelEl) return;
+      const viewport = visibleViewport();
       const rect = triggerEl.getBoundingClientRect();
-      const width = panelEl.offsetWidth;
+      const maxWidth = Math.max(1, viewport.width - GAP * 2);
+      const width = Math.min(panelEl.offsetWidth, maxWidth);
       const height = panelEl.offsetHeight;
-      const roomBelow = window.innerHeight - rect.bottom - GAP;
-      const roomAbove = rect.top - GAP;
+      const roomBelow = viewport.top + viewport.height - rect.bottom - GAP;
+      const roomAbove = rect.top - viewport.top - GAP;
       const placeAbove = roomBelow < height && roomAbove > roomBelow;
+      const minTop = viewport.top + GAP;
       const top =
         placeAbove
-          ? Math.max(GAP, rect.top - height - GAP)
-          : Math.min(rect.bottom + GAP, window.innerHeight - height - GAP);
+          ? Math.max(minTop, rect.top - height - GAP)
+          : Math.min(rect.bottom + GAP, Math.max(minTop, viewport.top + viewport.height - height - GAP));
       let left =
         align === "center"
           ? rect.left + rect.width / 2 - width / 2
           : align === "end"
             ? rect.right - width
             : rect.left;
-      left = Math.min(Math.max(GAP, left), window.innerWidth - width - GAP);
-      setPosition({ top: Math.max(GAP, top), left });
+      const minLeft = viewport.left + GAP;
+      const maxLeft = viewport.left + viewport.width - width - GAP;
+      left = Math.min(Math.max(minLeft, left), Math.max(minLeft, maxLeft));
+      setPosition({ top: Math.max(minTop, top), left, maxWidth });
     };
     measure();
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
+    window.visualViewport?.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("scroll", measure);
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && panelRef.current) {
       observer = new ResizeObserver(measure);
@@ -190,13 +224,15 @@ export function Popover({
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
+      window.visualViewport?.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("scroll", measure);
       observer?.disconnect();
     };
-  }, [open, align]);
+  }, [open, align, portalTarget]);
 
   useLayoutEffect(() => {
     if (!open) return;
-    const nextTarget = triggerRef.current?.closest<HTMLElement>('[role="dialog"]') ?? document.body;
+    const nextTarget = triggerRef.current?.closest<HTMLElement>(MODAL_HOST_SELECTOR) ?? document.body;
     setPortalTarget((current) => current === nextTarget ? current : nextTarget);
   }, [open]);
 
@@ -312,6 +348,9 @@ export function Popover({
             style={{
               top: position?.top ?? 0,
               left: position?.left ?? 0,
+              // Keep the surface on-screen on narrow viewports even when the
+              // content declares a fixed width (e.g. the property editors).
+              maxWidth: position ? `${position.maxWidth}px` : `calc(100vw - ${GAP * 2}px)`,
               visibility: position ? "visible" : "hidden",
             }}
           >
