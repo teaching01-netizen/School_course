@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"warwick-institute/internal/jobqueue"
 )
 
 type refreshRequest struct {
@@ -53,6 +55,9 @@ func validateRefreshRequest(request refreshRequest) (refreshJob, error) {
 	key := "legacy:" + entityType
 	if externalID != "" {
 		key += ":" + externalID
+	}
+	if entityType == "course" {
+		key = jobqueue.ManualCourseRefreshKey(externalID)
 	}
 	return refreshJob{JobType: jobType, EntityType: entityType, ExternalID: externalID, Priority: priority, UniqueKey: key}, nil
 }

@@ -23,7 +23,7 @@ func TestEgress_RunnerJitterSpreadsRunAfter(t *testing.T) {
 		Lease:       time.Minute,
 		Logger:      slog.New(slog.NewTextHandler(testWriter{t}, nil)),
 		ListCourses: func(context.Context) ([]string, error) { return []string{"a", "b", "c", "d"}, nil },
-		SyncCourse:  func(context.Context, string) error { return nil },
+		SyncCourse:  func(context.Context, string, bool) error { return nil },
 		Now:         func() time.Time { return fixed },
 		Rand: func(n int) int {
 			// Deterministic spread across the full 0..SweepEvery window.
@@ -78,7 +78,7 @@ func TestEgress_RunnerCircuitOpenSkipsEnqueue(t *testing.T) {
 		Lease:       time.Minute,
 		Logger:      slog.New(slog.NewTextHandler(testWriter{t}, nil)),
 		ListCourses: func(context.Context) ([]string, error) { return []string{"a"}, nil },
-		SyncCourse:  func(context.Context, string) error { return nil },
+		SyncCourse:  func(context.Context, string, bool) error { return nil },
 		Circuit:     func() (bool, time.Time) { return true, time.Now().Add(time.Minute) },
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestEgress_BudgetExceededGatesEnqueue(t *testing.T) {
 		Lease:          time.Minute,
 		Logger:         slog.New(slog.NewTextHandler(testWriter{t}, nil)),
 		ListCourses:    func(context.Context) ([]string, error) { return []string{"a"}, nil },
-		SyncCourse:     func(context.Context, string) error { return nil },
+		SyncCourse:     func(context.Context, string, bool) error { return nil },
 		BudgetExceeded: func() bool { return true },
 	})
 	if err != nil {
@@ -138,7 +138,7 @@ func TestEgress_RunnerPacingSecondSweepEnqueuesZero(t *testing.T) {
 			// Due filter: nothing is due on the second sweep.
 			return nil, nil
 		},
-		SyncCourse: func(context.Context, string) error {
+		SyncCourse: func(context.Context, string, bool) error {
 			t.Fatal("no job may be due before the sweep window elapses")
 			return nil
 		},

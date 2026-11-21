@@ -179,7 +179,7 @@ func TestLinkedCourseLookup_ExcludesDeletedAndUnlinkedCourses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listed, err := listLinkedLegacyCourses(ctx, pool)
+	listed, err := listLinkedLegacyCourses(ctx, pool, legacyCourseRefreshInterval(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestListLinkedLegacyCourses_SkipsArchivedAlreadySynced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listed, err := listLinkedLegacyCourses(ctx, pool)
+	listed, err := listLinkedLegacyCourses(ctx, pool, legacyCourseRefreshInterval(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

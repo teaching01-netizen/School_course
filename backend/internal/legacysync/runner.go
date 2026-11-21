@@ -2,6 +2,7 @@ package legacysync
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,7 +21,7 @@ type RunnerConfig struct {
 	Concurrency    int // parallel job processors draining the queue; 1 = sequential
 	Logger         *slog.Logger
 	ListCourses    func(context.Context) ([]string, error)
-	SyncCourse     func(context.Context, string) error
+	SyncCourse     func(ctx context.Context, legacyID string, manual bool) error
 	Detect         func(context.Context) ([]jobqueue.EnqueueRequest, error)
 	ProcessJob     func(context.Context, jobqueue.Job) error
 	Leader         func(context.Context) (bool, error)
@@ -273,7 +274,17 @@ func (r *Runner) enqueueLinkedCourses(ctx context.Context) error {
 func (r *Runner) process(ctx context.Context, job jobqueue.Job) error {
 	var work func(context.Context) error
 	if job.JobType == "legacy_refresh_course" && job.ExternalID != "" {
-		work = func(ctx context.Context) error { return r.cfg.SyncCourse(ctx, job.ExternalID) }
+		manual := job.UniqueKey == jobqueue.ManualCourseRefreshKey(job.ExternalID)
+		if !manual && job.UniqueKey == "legacy:course:"+job.ExternalID {
+			// Honor manual jobs queued by the previous version.
+			var payload struct {
+				RequestedBy string `json:"requested_by"`
+			}
+			if json.Unmarshal(job.Payload, &payload) == nil {
+				manual = payload.RequestedBy == "admin" || payload.RequestedBy == "course_detail"
+			}
+		}
+		work = func(ctx context.Context) error { return r.cfg.SyncCourse(ctx, job.ExternalID, manual) }
 	} else if r.cfg.ProcessJob != nil {
 		work = func(ctx context.Context) error { return r.cfg.ProcessJob(ctx, job) }
 	} else {

@@ -10,7 +10,7 @@ func TestValidateRefreshRequest(t *testing.T) {
 		wantKey  string
 		wantErr  bool
 	}{
-		{name: "course", request: refreshRequest{EntityType: " Course ", ExternalID: "7306"}, wantType: "legacy_refresh_course", wantKey: "legacy:course:7306"},
+		{name: "course", request: refreshRequest{EntityType: " Course ", ExternalID: "7306"}, wantType: "legacy_refresh_course", wantKey: "legacy:manual-course:7306"},
 		{name: "full", request: refreshRequest{EntityType: "full"}, wantType: "legacy_full_reconcile", wantKey: "legacy:full"},
 		{name: "missing external ID", request: refreshRequest{EntityType: "course"}, wantErr: true},
 		{name: "unsafe entity", request: refreshRequest{EntityType: "course/delete", ExternalID: "7306"}, wantErr: true},

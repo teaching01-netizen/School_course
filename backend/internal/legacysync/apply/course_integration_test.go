@@ -112,6 +112,70 @@ func TestCourseApply_CommitsAggregateMetadataTogether(t *testing.T) {
 	}
 }
 
+func TestCourseApply_LocksStudentsBeforeTeacherForeignKeys(t *testing.T) {
+	master, pool, suffix := masterDataTestService(t)
+	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var studentID, teacherID pgtype.UUID
+	if err := pool.QueryRow(ctx, `INSERT INTO students (wcode, full_name) VALUES ($1, 'Legacy lock test') RETURNING id`, "legacy-lock-"+suffix).Scan(&studentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO course_students (course_id, student_id) VALUES ($1, $2)`, courseID, studentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT internal_id FROM external_refs WHERE source = $1 AND entity_type = 'teacher' AND external_id = $2`, master.source, request.Aggregate.Course.TeacherID).Scan(&teacherID); err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(t.Context())
+	var blockerPID int32
+	if err := blocker.QueryRow(ctx, `SELECT pg_backend_pid() FROM students WHERE id = $1 FOR UPDATE`, studentID).Scan(&blockerPID); err != nil {
+		t.Fatal(err)
+	}
+	applier := newTestCourseApplier(pool, sqldb.New(pool), master.source)
+	applied := make(chan error, 1)
+	go func() {
+		_, err := applier.Apply(ctx, request)
+		applied <- err
+	}()
+	poll := time.NewTicker(10 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		var waiting bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity WHERE query LIKE '-- name: StudentsLockOrdered%'
+			AND $1 = ANY(pg_blocking_pids(pid)))`, blockerPID).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		select {
+		case err := <-applied:
+			t.Fatalf("apply returned before reaching the held student row: %v", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-poll.C:
+		}
+	}
+	// The competing schedule writer already holds its student row. If the
+	// course applied teacher foreign keys first, NOWAIT exposes the cycle.
+	var lockedTeacher pgtype.UUID
+	if err := blocker.QueryRow(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE NOWAIT`, teacherID).Scan(&lockedTeacher); err != nil {
+		t.Fatalf("teacher lock is blocked by an apply waiting on the student: %v", err)
+	}
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-applied; err != nil {
+		t.Fatalf("apply after release: %v", err)
+	}
+}
+
 func TestCourseApplyPreservesSessionsWhenScheduleTeacherIsMissing(t *testing.T) {
 	master, pool, suffix := masterDataTestService(t)
 	request, courseID := legacyCourseRequest(t, pool, master.source, suffix, false)

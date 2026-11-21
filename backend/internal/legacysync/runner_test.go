@@ -26,7 +26,7 @@ func TestRunnerEnqueuesAndProcessesLinkedCourses(t *testing.T) {
 		ListCourses: func(context.Context) ([]string, error) {
 			return []string{"7306", "7307"}, nil
 		},
-		SyncCourse: func(_ context.Context, id string) error {
+		SyncCourse: func(_ context.Context, id string, _ bool) error {
 			mu.Lock()
 			synced = append(synced, id)
 			mu.Unlock()
@@ -57,7 +57,7 @@ func TestRunnerDoesNotFetchWhenPaused(t *testing.T) {
 		Store:       store,
 		WorkerID:    "test-worker",
 		ListCourses: func(context.Context) ([]string, error) { t.Fatal("list should not run while paused"); return nil, nil },
-		SyncCourse:  func(context.Context, string) error { called = true; return nil },
+		SyncCourse:  func(context.Context, string, bool) error { called = true; return nil },
 		Controls: func(context.Context) (RunnerControls, error) {
 			return RunnerControls{DetectionEnabled: false, FetchEnabled: false}, nil
 		},
@@ -85,7 +85,10 @@ func TestRunnerSkipsEnqueueWhenFetchDisabled(t *testing.T) {
 			t.Fatal("list should not run while fetch disabled")
 			return nil, nil
 		},
-		SyncCourse: func(context.Context, string) error { t.Fatal("sync should not run while fetch disabled"); return nil },
+		SyncCourse: func(context.Context, string, bool) error {
+			t.Fatal("sync should not run while fetch disabled")
+			return nil
+		},
 		Controls: func(context.Context) (RunnerControls, error) {
 			return RunnerControls{DetectionEnabled: true, FetchEnabled: false}, nil
 		},
@@ -108,7 +111,7 @@ func TestRunnerRetriesFailedJobs(t *testing.T) {
 		Store:       store,
 		WorkerID:    "test-worker",
 		ListCourses: func(context.Context) ([]string, error) { return []string{"7306"}, nil },
-		SyncCourse: func(_ context.Context, _ string) error {
+		SyncCourse: func(context.Context, string, bool) error {
 			attempts++
 			return errors.New("source unavailable")
 		},
@@ -134,7 +137,7 @@ func TestRunnerProcessesDetectedJobsWithCustomHandler(t *testing.T) {
 		Store:       store,
 		WorkerID:    "test-worker",
 		ListCourses: func(context.Context) ([]string, error) { return nil, nil },
-		SyncCourse:  func(context.Context, string) error { return nil },
+		SyncCourse:  func(context.Context, string, bool) error { return nil },
 		Detect: func(context.Context) ([]jobqueue.EnqueueRequest, error) {
 			return []jobqueue.EnqueueRequest{{JobType: "legacy_refresh_teacher", EntityType: "teacher", ExternalID: "78", UniqueKey: "legacy:teacher:78"}}, nil
 		},
@@ -164,7 +167,7 @@ func TestRunnerNonLeaderStillProcessesQueuedJobs(t *testing.T) {
 		Store:       store,
 		WorkerID:    "test-worker",
 		ListCourses: func(context.Context) ([]string, error) { t.Fatal("non-leader should not detect"); return nil, nil },
-		SyncCourse:  func(_ context.Context, id string) error { processed = id == "7306"; return nil },
+		SyncCourse:  func(_ context.Context, id string, _ bool) error { processed = id == "7306"; return nil },
 		Leader:      func(context.Context) (bool, error) { return false, nil },
 	})
 	if err != nil {
@@ -196,7 +199,7 @@ func TestRunnerDrainsQueueWhenDetectorLeadershipFails(t *testing.T) {
 			t.Fatal("course detection ran without leadership")
 			return nil, nil
 		},
-		SyncCourse: func(_ context.Context, id string) error {
+		SyncCourse: func(_ context.Context, id string, _ bool) error {
 			synced = append(synced, id)
 			return nil
 		},
@@ -245,7 +248,7 @@ func TestRunnerProcessesJobsConcurrently(t *testing.T) {
 		Lease:       time.Minute,
 		Logger:      slog.New(slog.NewTextHandler(testWriter{t}, nil)),
 		ListCourses: func(context.Context) ([]string, error) { return nil, nil },
-		SyncCourse: func(_ context.Context, _ string) error {
+		SyncCourse: func(context.Context, string, bool) error {
 			synced.Add(1)
 			entered <- struct{}{}
 			select {

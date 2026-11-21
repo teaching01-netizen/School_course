@@ -134,15 +134,13 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	// The unchanged-hash fast path may only fire when the previous run
 	// applied the whole aggregate; a partial snapshot must stay retryable.
 	// Additionally, verify local code and references still match (integrity check).
-	if err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
+	if !request.ShadowMode && err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
 		if a.fastPathIntegrityValid(ctx, tx, request) && a.fastPathSchedulesMaterialized(ctx, tx, request) {
 			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("update unchanged legacy course metadata: %w", err)
 			}
-			if !request.ShadowMode {
-				if err := markCourseObservationApplied(ctx, tx, a.source, request.LegacyCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
-					return ScheduleApplyResult{}, err
-				}
+			if err := markCourseObservationApplied(ctx, tx, a.source, request.LegacyCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+				return ScheduleApplyResult{}, err
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("commit unchanged legacy course: %w", err)
@@ -210,6 +208,22 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	if err := qtx.LockCourseBookingWrites(ctx); err != nil {
 		return ScheduleApplyResult{}, err
 	}
+	scheduleApplier := &ScheduleApplier{source: a.source, policy: a.policy, fault: a.fault}
+	scheduleRequest := ScheduleApplyRequest{
+		CourseID:                 request.CourseID,
+		LegacyCourseID:           request.LegacyCourseID,
+		TeacherID:                teacherID,
+		Aggregate:                request.Aggregate,
+		ObservedAt:               request.ObservedAt,
+		ObservationGeneration:    request.ObservationGeneration,
+		ScheduleSnapshotComplete: request.ScheduleSnapshotComplete,
+		allowConflicts:           request.allowConflicts,
+	}
+	// The teacher foreign keys can lock the teacher row during metadata writes.
+	// Acquire schedule resources in canonical order before those writes.
+	if err := scheduleApplier.lockScheduleResources(ctx, tx, qtx, scheduleRequest); err != nil {
+		return ScheduleApplyResult{}, err
+	}
 	// Wrap updateCourse in a SAVEPOINT to handle code collisions gracefully.
 	if _, err := tx.Exec(ctx, `SAVEPOINT course_update`); err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("savepoint course update: %w", err)
@@ -271,18 +285,7 @@ func (a *CourseApplier) Apply(ctx context.Context, request CourseApplyRequest) (
 	if err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("load legacy course timezone: %w", err)
 	}
-	scheduleApplier := &ScheduleApplier{source: a.source, policy: a.policy, fault: a.fault}
-	scheduleRequest := ScheduleApplyRequest{
-		CourseID:                 request.CourseID,
-		LegacyCourseID:           request.LegacyCourseID,
-		TeacherID:                teacherID,
-		Aggregate:                request.Aggregate,
-		ObservedAt:               request.ObservedAt,
-		ObservationGeneration:    request.ObservationGeneration,
-		ScheduleSnapshotComplete: request.ScheduleSnapshotComplete,
-		InstituteTZ:              loc.String(),
-		allowConflicts:           request.allowConflicts,
-	}
+	scheduleRequest.InstituteTZ = loc.String()
 	skipped, err = scheduleApplier.applyDomain(ctx, tx, qtx, scheduleRequest, loc, sourceHash)
 	if err != nil {
 		return ScheduleApplyResult{}, fmt.Errorf("apply legacy course schedules: %w", err)
@@ -432,12 +435,15 @@ func (a *CourseApplier) hitFault(name string) error {
 // fastPathIntegrityValid checks whether the local course state still matches the
 // aggregate code and references for the fast-path to be safe.
 func (a *CourseApplier) fastPathIntegrityValid(ctx context.Context, tx pgx.Tx, request CourseApplyRequest) bool {
-	// Verify local code still matches the aggregate code.
-	var currentCode string
-	if err := tx.QueryRow(ctx, `SELECT code FROM courses WHERE id=$1`, request.CourseID).Scan(&currentCode); err != nil {
+	// A status update can leave the last applied aggregate hash unchanged.
+	var currentCode, currentStatus string
+	var currentArchived bool
+	if err := tx.QueryRow(ctx, `SELECT code, COALESCE(legacy_status, ''), legacy_archived FROM courses WHERE id=$1`, request.CourseID).
+		Scan(&currentCode, &currentStatus, &currentArchived); err != nil {
 		return false
 	}
-	if currentCode != request.Aggregate.Course.Code {
+	status := strings.ToLower(strings.TrimSpace(request.Aggregate.Course.Status))
+	if currentCode != request.Aggregate.Course.Code || currentStatus != status || currentArchived != (status == "archived") {
 		return false
 	}
 	// Verify teacher reference still resolves.

@@ -28,6 +28,20 @@ type courseIndex struct {
 	subjects map[string]normalize.LegacySubject
 }
 
+func (i *courseIndex) openCourseIDs() []string {
+	var ids []string
+	for id, course := range i.courses {
+		if courseCanResumeSync(course.Status) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func courseCanResumeSync(status string) bool {
+	return status == "active" || status == "draft"
+}
+
 // buildCourseIndex indexes a parsed course list result by legacy id. A nil
 // result builds an empty, usable index.
 func buildCourseIndex(result *parser.CourseListResult) *courseIndex {
@@ -51,11 +65,6 @@ func buildCourseIndex(result *parser.CourseListResult) *courseIndex {
 	return index
 }
 
-// shouldSkipArchivedSync is the "sync once, then skip" rule for archived
-// courses: an archived course that has already synced at least once
-// (legacy_last_synced_at is set by a real, non-shadow successful apply —
-// never in shadow mode or after a failed apply) is left alone on every
-// later sync. Courses that never synced — or are active — keep syncing.
 func defaultRefreshInterval(d time.Duration) time.Duration {
 	if d <= 0 {
 		return 30 * time.Minute
@@ -63,6 +72,7 @@ func defaultRefreshInterval(d time.Duration) time.Duration {
 	return d
 }
 
+// shouldSkipArchivedSync identifies courses frozen after their first apply.
 func shouldSkipArchivedSync(archived bool, lastSynced pgtype.Timestamptz) bool {
 	return archived && lastSynced.Valid
 }
@@ -104,6 +114,7 @@ type courseSyncer struct {
 	// during profile sync; 1 runs the historical sequential loop.
 	studentProfileWorkers int
 	refreshIntervalDur    time.Duration
+	nextReactivationCheck time.Time // used only by the leader's serial sweep
 
 	indexMu      sync.Mutex
 	courseList   *parser.CourseListResult
@@ -193,6 +204,20 @@ func (s *courseSyncer) loadCourseIndex(ctx context.Context) (*courseIndex, error
 	return idx, nil
 }
 
+func (s *courseSyncer) listSweepCourses(ctx context.Context) ([]string, error) {
+	var sourceOpenIDs []string
+	if now := time.Now(); !now.Before(s.nextReactivationCheck) {
+		s.nextReactivationCheck = now.Add(s.refreshInterval())
+		index, err := s.loadCourseIndex(ctx)
+		if err != nil {
+			s.log.Warn("legacy reactivation check failed", "error", err)
+		} else {
+			sourceOpenIDs = index.openCourseIDs()
+		}
+	}
+	return listLinkedLegacyCourses(ctx, s.pool, s.refreshInterval(), sourceOpenIDs)
+}
+
 // applyCourseMasterData makes the master data referenced by a course
 // available before the course apply resolves it: the course's teacher and
 // subject are applied from the course directory, exactly like the rooms
@@ -221,13 +246,9 @@ func (s *courseSyncer) applyCourseMasterData(ctx context.Context, index *courseI
 	return nil
 }
 
-// syncCourse refreshes one linked legacy course. The local link is
-// authoritative: an absent link skips the job (the course was deleted or
-// the link cleared since enqueue), and an archived course that already
-// synced once is skipped before ANY source request ("sync once, then
-// skip") — so the leader sweep, reconcile jobs, and the admin refresh
-// button all become no-ops for it.
-func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
+// syncCourse refreshes a linked course. Explicit refreshes bypass the archive
+// and cooldown checks used to limit background work.
+func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string, manual bool) error {
 	linked, found, err := findLinkedLegacyCourse(ctx, s.pool, legacyID)
 	if err != nil {
 		return fmt.Errorf("find linked course %s: %w", legacyID, err)
@@ -238,11 +259,19 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 		// Skip without error escalation so the job is not retried forever.
 		return nil
 	}
-	if shouldSkipArchivedSync(linked.legacyArchived, linked.lastSyncedAt) {
-		s.log.Info("skipping archived legacy course (already synced once)", "legacy_course_id", legacyID)
-		return nil
+	var index *courseIndex
+	frozen := shouldSkipArchivedSync(linked.legacyArchived, linked.lastSyncedAt)
+	if !manual && frozen {
+		index, err = s.loadCourseIndex(ctx)
+		if err != nil {
+			return fmt.Errorf("check legacy course %s for reactivation: %w", legacyID, err)
+		}
+		if !courseCanResumeSync(index.courses[legacyID].Status) {
+			s.log.Info("skipping archived legacy course (already synced once)", "legacy_course_id", legacyID)
+			return nil
+		}
 	}
-	if s.withinRefreshCooldown(linked.lastSyncedAt) {
+	if !manual && !frozen && s.withinRefreshCooldown(linked.lastSyncedAt) {
 		snap, err := s.q.SnapshotGet(ctx, sqldb.SnapshotGetParams{Source: "legacy_warwick", EntityType: "course", ExternalID: legacyID})
 		if err == nil && snap.Quality == "ok" && snap.SourceHash != "" {
 			s.log.Info("skipping legacy course within cooldown (snapshot ok)", "legacy_course_id", legacyID)
@@ -261,9 +290,11 @@ func (s *courseSyncer) syncCourse(ctx context.Context, legacyID string) error {
 	if err != nil {
 		return err
 	}
-	index, err := s.loadCourseIndex(ctx)
-	if err != nil {
-		return fmt.Errorf("load legacy course index: %w", err)
+	if index == nil {
+		index, err = s.loadCourseIndex(ctx)
+		if err != nil {
+			return fmt.Errorf("load legacy course index: %w", err)
+		}
 	}
 	course, ok := index.courses[legacyID]
 	if !ok {

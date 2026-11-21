@@ -158,6 +158,43 @@ func TestManualSync_RequiresLegacyLink(t *testing.T) {
 	}
 }
 
+func TestManualSync_QueuesSeparatelyFromRunningBackgroundRefresh(t *testing.T) {
+	fx := setupTestServer(t)
+	ctx := t.Context()
+	legacyID := "manual-" + fx.courseIDStr
+	if _, err := fx.dbpool.Exec(ctx, `UPDATE courses SET legacy_course_id = $1 WHERE id = $2`, legacyID, fx.courseID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := fx.dbpool.Exec(context.Background(), `DELETE FROM legacy_sync_jobs WHERE external_id = $1`, legacyID); err != nil {
+			t.Error(err)
+		}
+	})
+	var backgroundID string
+	if err := fx.dbpool.QueryRow(ctx, `INSERT INTO legacy_sync_jobs (job_type, entity_type, external_id, unique_key, status, locked_until)
+		VALUES ('legacy_refresh_course', 'course', $1, $2, 'running', now() + interval '30 seconds') RETURNING id::text`,
+		legacyID, "legacy:course:"+legacyID).Scan(&backgroundID); err != nil {
+		t.Fatal(err)
+	}
+	url := fmt.Sprintf("/api/v1/courses/%s/legacy-sync", fx.courseIDStr)
+	queue := func() string {
+		t.Helper()
+		resp := doRequest(t, fx.server.URL, http.MethodPost, url, nil)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("manual refresh status = %d, want 202", resp.StatusCode)
+		}
+		var result struct {
+			JobID string `json:"job_id"`
+		}
+		parseResponse(t, resp, &result)
+		return result.JobID
+	}
+	manualID := queue()
+	if manualID == "" || manualID == backgroundID || queue() != manualID {
+		t.Fatalf("manual job %q should be distinct from background job %q and reused for duplicate requests", manualID, backgroundID)
+	}
+}
+
 func TestManualSync_NonAdmin_Rejected(t *testing.T) {
 	t.Skip("requires separate fixture with teacher auth")
 }

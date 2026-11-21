@@ -8,6 +8,12 @@ import (
 
 var ErrNoJobs = errors.New("job queue: no eligible jobs")
 
+// ManualCourseRefreshKey keeps an explicit request from being absorbed by a
+// background refresh that may already be running or eligible to skip.
+func ManualCourseRefreshKey(legacyID string) string {
+	return "legacy:manual-course:" + legacyID
+}
+
 type Job struct {
 	ID          string
 	JobType     string

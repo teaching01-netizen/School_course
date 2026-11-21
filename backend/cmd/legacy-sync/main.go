@@ -31,14 +31,6 @@ import (
 	"warwick-institute/internal/schedulepolicy"
 )
 
-// listLinkedLegacyCourses returns the legacy course ids of local courses
-// currently linked for sync. Archived courses that have already synced once
-// are excluded: they are frozen ("sync once, then skip"), so the leader
-// sweep must stop enqueuing refresh jobs for them.
-func listLinkedLegacyCourses(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
-	return listLinkedLegacyCoursesWithCooldown(ctx, pool, legacyCourseRefreshInterval())
-}
-
 func legacyCourseRefreshInterval() time.Duration {
 	if raw := os.Getenv("LEGACY_SYNC_COURSE_REFRESH_INTERVAL"); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
@@ -48,12 +40,16 @@ func legacyCourseRefreshInterval() time.Duration {
 	return 30 * time.Minute
 }
 
-func listLinkedLegacyCoursesWithCooldown(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration) ([]string, error) {
+// listLinkedLegacyCourses admits due courses and previously frozen courses
+// that the source directory now explicitly reports as active or draft.
+func listLinkedLegacyCourses(ctx context.Context, pool *pgxpool.Pool, refreshInterval time.Duration, sourceOpenIDs []string) ([]string, error) {
 	rows, err := pool.Query(ctx, `SELECT legacy_course_id FROM courses
 		WHERE legacy_course_id IS NOT NULL
-		  AND NOT (legacy_archived AND legacy_last_synced_at IS NOT NULL)
-		  AND COALESCE(GREATEST(legacy_last_synced_at, legacy_last_seen_at), '-infinity') < now() - $1::interval
-		ORDER BY legacy_course_id`, refreshInterval.String())
+		  AND CASE WHEN legacy_archived AND legacy_last_synced_at IS NOT NULL
+		      THEN legacy_course_id = ANY($2::text[])
+		      ELSE COALESCE(GREATEST(legacy_last_synced_at, legacy_last_seen_at), '-infinity') < now() - $1::interval
+		  END
+		ORDER BY legacy_course_id`, refreshInterval.String(), sourceOpenIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +173,7 @@ func main() {
 			if err := q.LegacySyncFailAbandonedFullRuns(ctx); err != nil {
 				return nil, fmt.Errorf("close abandoned reconciliation: %w", err)
 			}
-			return listLinkedLegacyCourses(ctx, pool)
+			return syncer.listSweepCourses(ctx)
 		},
 		SyncCourse: syncer.syncCourse,
 		Controls: func(ctx context.Context) (legacysync.RunnerControls, error) {

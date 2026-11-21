@@ -18,6 +18,7 @@ import (
 	"warwick-institute/internal/httpapi/httpadapter"
 	"warwick-institute/internal/httpapi/httpdeps"
 	"warwick-institute/internal/httpapi/sessiondaterange"
+	"warwick-institute/internal/jobqueue"
 	"warwick-institute/internal/realtime"
 	"warwick-institute/internal/scheduling"
 )
@@ -1150,7 +1151,7 @@ func (s *server) handleLegacySync(w http.ResponseWriter, r *http.Request) {
 		EntityType:  pgtype.Text{String: "course", Valid: true},
 		ExternalID:  legacyCourseID,
 		Payload:     string(payload),
-		UniqueKey:   pgtype.Text{String: "legacy:course:" + legacyCourseID.String, Valid: true},
+		UniqueKey:   pgtype.Text{String: jobqueue.ManualCourseRefreshKey(legacyCourseID.String), Valid: true},
 		Priority:    1,
 		DeadlineAt:  pgtype.Timestamptz{Time: now.Add(10 * time.Minute), Valid: true},
 		MaxAttempts: 5,

@@ -170,7 +170,7 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	// applied the whole aggregate; a partial snapshot (rows skipped by
 	// exclusion conflicts) must stay retryable after the local blocker is
 	// resolved.
-	if err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
+	if !request.ShadowMode && err == nil && previous.SourceHash == sourceHash && previous.Quality == "ok" {
 		// The fast path only restores soft-deleted rows. A hard-deleted
 		// session (admin delete, series purge, legacy refresh) leaves the
 		// source hash unchanged but cannot be restored by that path, so fall
@@ -185,17 +185,15 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 			// were locally soft-deleted while still present in the source are
 			// restored (the source is the contract).
 			skipped := 0
-			if !request.ShadowMode {
-				skipped, err = a.restoreSourcePresentSessions(ctx, tx, qtx, request, loc)
-				if err != nil {
-					return ScheduleApplyResult{}, err
-				}
-				if err := a.markSourcePresentSchedules(ctx, tx, request); err != nil {
-					return ScheduleApplyResult{}, err
-				}
-				if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
-					return ScheduleApplyResult{}, err
-				}
+			skipped, err = a.restoreSourcePresentSessions(ctx, tx, qtx, request, loc)
+			if err != nil {
+				return ScheduleApplyResult{}, err
+			}
+			if err := a.markSourcePresentSchedules(ctx, tx, request); err != nil {
+				return ScheduleApplyResult{}, err
+			}
+			if err := a.deactivateMissingSchedules(ctx, tx, request); err != nil {
+				return ScheduleApplyResult{}, err
 			}
 			if _, err := tx.Exec(ctx, `UPDATE courses SET legacy_last_seen_at=$1, legacy_last_synced_at=$1 WHERE id=$2`, request.ObservedAt, request.CourseID); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("update unchanged schedule metadata: %w", err)
@@ -206,10 +204,8 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 			}); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("upsert unchanged schedule mapping: %w", err)
 			}
-			if !request.ShadowMode {
-				if err := markCourseObservationApplied(ctx, tx, a.source, externalCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
-					return ScheduleApplyResult{}, err
-				}
+			if err := markCourseObservationApplied(ctx, tx, a.source, externalCourseID, request.ObservationGeneration, request.ObservedAt); err != nil {
+				return ScheduleApplyResult{}, err
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return ScheduleApplyResult{}, fmt.Errorf("commit unchanged schedule: %w", err)
@@ -222,6 +218,9 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	}
 	skipped := 0
 	if !request.ShadowMode {
+		if err := a.lockScheduleResources(ctx, tx, qtx, request); err != nil {
+			return ScheduleApplyResult{}, err
+		}
 		skipped, err = a.applyDomain(ctx, tx, qtx, request, loc, sourceHash)
 		if err != nil {
 			return ScheduleApplyResult{}, err
@@ -260,10 +259,8 @@ func (a *ScheduleApplier) Apply(ctx context.Context, request ScheduleApplyReques
 	return ScheduleApplyResult{SourceHash: sourceHash, Changed: true, Sessions: len(request.Aggregate.Schedules), SkippedSessions: skipped, AppliedAt: request.ObservedAt}, nil
 }
 
+// applyDomain expects its caller to hold the schedule resource locks.
 func (a *ScheduleApplier) applyDomain(ctx context.Context, tx pgx.Tx, qtx *sqldb.Queries, request ScheduleApplyRequest, loc *time.Location, sourceHash string) (int, error) {
-	if err := a.lockScheduleResources(ctx, tx, qtx, request); err != nil {
-		return 0, err
-	}
 	missingTeacher := len(request.Aggregate.Schedules) > 0 && !request.TeacherID.Valid
 	if _, err := tx.Exec(ctx, `UPDATE courses
 		SET legacy_source_hash=$1, legacy_last_seen_at=$2,
