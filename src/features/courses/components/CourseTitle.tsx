@@ -25,7 +25,7 @@ export function CourseTitle({ course, savingField, onSave }: CourseTitleProps) {
   const title = course.subject_name ?? course.name;
 
   return (
-    <h1 className="mt-1">
+    <h1 className="mt-1 min-w-0 flex-1">
       <Popover
         open={open}
         onOpenChange={setOpen}

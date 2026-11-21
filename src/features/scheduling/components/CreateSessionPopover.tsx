@@ -50,7 +50,7 @@ export default function CreateSessionPopover(props: CreateSessionPopoverProps) {
       onOpenChange={onOpenChange}
       trigger={trigger}
       ariaLabel="New session"
-      contentClassName="w-[23rem] max-w-[calc(100vw-1rem)]"
+      contentClassName="w-[23rem] [--popover-content-max-width:calc(100vw-1rem)]"
     >
       <CreateSessionPanel {...panelProps} onOpenChange={onOpenChange} />
     </Popover>

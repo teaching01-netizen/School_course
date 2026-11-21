@@ -9,6 +9,7 @@ import {
   useState,
   cloneElement,
   isValidElement,
+  type CSSProperties,
   type MutableRefObject,
   type ReactElement,
   type ReactNode,
@@ -39,6 +40,9 @@ interface PopoverProps {
   /** Move focus to the first focusable control on open (default true). */
   autoFocus?: boolean;
   closeParentOnEscape?: boolean;
+  /** Classes for the panel. Callers may declare a
+   *  `--popover-content-max-width` custom property to bound the panel; the
+   *  visible-viewport cap composes with that bound instead of overriding it. */
   contentClassName?: string;
   children: ReactNode;
 }
@@ -350,9 +354,20 @@ export function Popover({
               left: position?.left ?? 0,
               // Keep the surface on-screen on narrow viewports even when the
               // content declares a fixed width (e.g. the property editors).
-              maxWidth: position ? `${position.maxWidth}px` : `calc(100vw - ${GAP * 2}px)`,
+              // `--popover-viewport-cap` also lets content bound its own
+              // min-width against the *visible* viewport (mobile layout
+              // viewports can be wider than what is on screen).
+              "--popover-viewport-cap": position
+                ? `${position.maxWidth}px`
+                : `calc(100vw - ${GAP * 2}px)`,
+              // Compose with, rather than override, a caller's bound. Panels
+              // such as the property editors and SearchableSelect declare
+              // `--popover-content-max-width` (e.g. 28rem); without it the
+              // viewport cap is the only limit.
+              maxWidth:
+                "min(var(--popover-viewport-cap), var(--popover-content-max-width, 100vw))",
               visibility: position ? "visible" : "hidden",
-            }}
+            } as CSSProperties}
           >
             <PopoverTreeContext.Provider value={popoverIdRef.current}>
               <PopoverCloseContext.Provider value={close}>{children}</PopoverCloseContext.Provider>

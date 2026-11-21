@@ -334,6 +334,10 @@ const SearchableSelect = forwardRef<HTMLSelectElement, SearchableSelectProps>(fu
     </select>
   );
 
+  // The viewport cap composes with the 28rem content bound. The minimum also
+  // uses the popover's visible-viewport cap: `100vw` on a mobile layout
+  // viewport can be wider than the screen, which would otherwise beat the cap
+  // and push the list off-screen.
   return (
     <Popover
       trigger={trigger as ReactElement<{ ref?: Ref<HTMLElement>; onClick?: React.MouseEventHandler }>}
@@ -343,7 +347,7 @@ const SearchableSelect = forwardRef<HTMLSelectElement, SearchableSelectProps>(fu
       closeParentOnEscape={isInputTrigger}
       role="dialog"
       ariaLabel={searchPlaceholder}
-      contentClassName="w-max min-w-[min(22rem,calc(100vw-1rem))] max-w-[min(28rem,calc(100vw-1rem))] p-2"
+      contentClassName="w-max min-w-[min(22rem,var(--popover-viewport-cap,calc(100vw-1rem)))] [--popover-content-max-width:min(28rem,calc(100vw-1rem))] p-2"
     >
       <div className="flex min-w-0 flex-col gap-2">
         {!isInputTrigger && (

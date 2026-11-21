@@ -61,12 +61,15 @@ describe("SearchableSelect", () => {
     expect(option).toHaveTextContent(longName);
 
     // The label wraps (break-words) rather than clipping with truncate, and
-    // the panel grows with its content (w-max capped by max-w) so long
-    // course names stay readable.
+    // the panel grows with its content (w-max) up to the caller's content
+    // bound, which composes with the visible-viewport cap.
     const label = option.querySelector("span > span");
     expect(label?.className).toContain("break-words");
     expect(label?.className).not.toContain("truncate");
     expect(popover.className).toContain("w-max");
-    expect(popover.className).toContain("max-w-");
+    expect(popover.className).toContain(
+      "[--popover-content-max-width:min(28rem,calc(100vw-1rem))]",
+    );
+    expect(popover.className).toContain("min-w-[min(22rem,var(--popover-viewport-cap");
   });
 });

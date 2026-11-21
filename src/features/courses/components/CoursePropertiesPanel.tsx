@@ -88,7 +88,7 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
         <PropertyRow
           label="Type"
           saving={busy}
-          contentClassName="w-max min-w-56 max-w-[min(28rem,calc(100vw-2rem))]"
+          contentClassName="w-max min-w-[min(14rem,var(--popover-viewport-cap,calc(100vw-2rem)))] [--popover-content-max-width:min(28rem,calc(100vw-2rem))]"
           value={course.course_type ? <span className="min-w-0 truncate">{course.course_type}</span> : null}
           placeholder="No type"
           editor={(close) => (
@@ -132,7 +132,7 @@ export function CoursePropertiesPanel({ course, teacherOptions, teacherNameById,
         <PropertyRow
           label="Cycle"
           saving={busy}
-          contentClassName="w-max min-w-72 max-w-[min(28rem,calc(100vw-2rem))]"
+          contentClassName="w-max min-w-[min(18rem,var(--popover-viewport-cap,calc(100vw-2rem)))] [--popover-content-max-width:min(28rem,calc(100vw-2rem))]"
           value={course.cycle_label ? <span className="min-w-0 truncate">{course.cycle_label}</span> : null}
           placeholder="No cycle"
           editor={(close) => (

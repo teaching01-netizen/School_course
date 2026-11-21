@@ -104,16 +104,23 @@ describe("Popover", () => {
     expect(screen.getByRole("dialog")).toHaveClass("w-80", "custom-panel");
   });
 
-  it("caps the panel width to the viewport", async () => {
+  it("caps the panel width to the viewport without discarding a caller bound", async () => {
     renderPopover({ contentClassName: "w-80" });
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: "Open" }));
 
     const panel = screen.getByRole("dialog");
-    const maxWidth = Number.parseFloat(panel.style.maxWidth);
-    expect(Number.isFinite(maxWidth)).toBe(true);
-    expect(maxWidth).toBeLessThanOrEqual(window.innerWidth);
+    const viewportCap = Number.parseFloat(
+      panel.style.getPropertyValue("--popover-viewport-cap"),
+    );
+    expect(Number.isFinite(viewportCap)).toBe(true);
+    expect(viewportCap).toBeLessThanOrEqual(window.innerWidth);
+    // The inline cap composes with (rather than replaces) a caller's own
+    // content bound.
+    expect(panel.style.maxWidth).toBe(
+      "min(var(--popover-viewport-cap), var(--popover-content-max-width, 100vw))",
+    );
   });
 
   it("uses the visible viewport when it is narrower than the layout viewport", async () => {
@@ -136,7 +143,9 @@ describe("Popover", () => {
       await user.click(screen.getByRole("button", { name: "Open" }));
 
       const panel = screen.getByRole("dialog");
-      await waitFor(() => expect(panel.style.maxWidth).toBe("312px"));
+      await waitFor(() =>
+        expect(panel.style.getPropertyValue("--popover-viewport-cap")).toBe("312px"),
+      );
       const left = Number.parseFloat(panel.style.left);
       expect(left).toBeGreaterThanOrEqual(4);
       expect(left + 312).toBeLessThanOrEqual(320);

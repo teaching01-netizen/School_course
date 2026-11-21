@@ -52,7 +52,7 @@ export default function SessionEditorPopover(props: SessionEditorPopoverProps) {
       trigger={trigger}
       autoFocus={false}
       ariaLabel="Edit session"
-      contentClassName="w-[23rem] max-w-[calc(100vw-1rem)]"
+      contentClassName="w-[23rem] [--popover-content-max-width:calc(100vw-1rem)]"
     >
       <SessionEditorPanel {...panelProps} onOpenChange={onOpenChange} />
     </Popover>

@@ -1046,7 +1046,7 @@ export default function CourseDetail() {
         </Link>
         <div className="flex items-start justify-between gap-3">
           <CourseTitle course={course} savingField={savingField} onSave={saveCourse} />
-          <div className="flex items-center gap-1 pt-2">
+          <div className="flex shrink-0 items-center gap-1 pt-2">
             <Popover
               align="end"
               ariaLabel="Course properties"
