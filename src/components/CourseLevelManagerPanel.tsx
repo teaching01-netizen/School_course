@@ -43,10 +43,6 @@ type EffectiveCourse = {
   canEditLevel: boolean;
   readOnlyReason: string | null;
   canonicalKey: string;
-  /** Course that owns the authoritative cycle for this row (the link source when one exists). */
-  setupCourseId: string;
-  /** A level is set but no cycle is, so readiness cannot be asserted. */
-  missingCycle: boolean;
 };
 
 type EffectiveEntry = {
@@ -61,9 +57,6 @@ type EffectiveEntry = {
   cycleLabel: string;
   level: number | null;
   mergeGroupId: string | null;
-  /** Course that owns the authoritative cycle for this entry (the link source when one exists). */
-  setupCourseId: string;
-  missingCycle: boolean;
 };
 
 type LevelConflict = {
@@ -187,11 +180,9 @@ export default function CourseLevelManagerPanel({
           displayLevel: course.level,
           cycleId,
           cycleLabel: course.cycle_label || "No cycle",
-          canEditLevel: Boolean(cycleId),
-          readOnlyReason: cycleId ? null : "Add a cycle to this course before setting its level.",
+          canEditLevel: true,
+          readOnlyReason: null,
           canonicalKey: `course:${course.id}`,
-          setupCourseId: course.id,
-          missingCycle: course.level !== null && !cycleId,
         });
         entries.push({
           key: `course:${course.id}`,
@@ -205,8 +196,6 @@ export default function CourseLevelManagerPanel({
           cycleLabel: course.cycle_label || "No cycle",
           level: course.level,
           mergeGroupId: null,
-          setupCourseId: course.id,
-          missingCycle: course.level !== null && !cycleId,
         });
         continue;
       }
@@ -234,8 +223,6 @@ export default function CourseLevelManagerPanel({
         canEditLevel: isContinuation,
         readOnlyReason,
         canonicalKey: `merge:${mergeGroup.id}`,
-        setupCourseId: canonical.id,
-        missingCycle: mergeGroup.level !== null && !cycleId,
       });
 
       const readinessCourse = groupCourse ?? canonical;
@@ -256,8 +243,6 @@ export default function CourseLevelManagerPanel({
           cycleLabel,
           level: mergeGroup.level,
           mergeGroupId: mergeGroup.id,
-          setupCourseId: canonical.id,
-          missingCycle: mergeGroup.level !== null && !cycleId,
         });
       }
     }
@@ -291,8 +276,8 @@ export default function CourseLevelManagerPanel({
     return [...(coursesByGroup.get(selectedGroup.id) ?? [])].sort((a, b) => {
       const subject = a.subject_code.localeCompare(b.subject_code);
       if (subject !== 0) return subject;
-      const cycleA = effective.rows.get(a.id)?.cycleLabel ?? a.cycle_label;
-      const cycleB = effective.rows.get(b.id)?.cycleLabel ?? b.cycle_label;
+      const cycleA = effective.rows.get(a.id)?.cycleLabel ?? "No cycle";
+      const cycleB = effective.rows.get(b.id)?.cycleLabel ?? "No cycle";
       const cycle = cycleA.localeCompare(cycleB);
       if (cycle !== 0) return cycle;
       const levelA = effective.rows.get(a.id)?.displayLevel ?? a.level;
@@ -359,13 +344,12 @@ export default function CourseLevelManagerPanel({
     if (entries.length === 0) return { status: "empty", label: "Empty", gaps: 0 };
     const gaps = countGaps(entries);
     const hasUnset = entries.some((entry) => entry.level === null);
-    const hasMissingCycle = entries.some((entry) => entry.missingCycle);
     if (group.virtual) return { status: "attention", label: "Needs group", gaps };
     // Linked effective values are unavailable, so readiness cannot be asserted.
     if (mergeConfigError) return { status: "attention", label: "Needs attention", gaps };
     const hasRule = Boolean(groups.find((item) => item.id === group.id)?.sit_in_rule_id);
     if (!hasRule) return { status: "attention", label: "Rule needed", gaps };
-    if (hasUnset || hasMissingCycle || gaps > 0) return { status: "attention", label: "Needs attention", gaps };
+    if (hasUnset || gaps > 0) return { status: "attention", label: "Needs attention", gaps };
     return { status: "ready", label: "Ready", gaps: 0 };
   }
 
@@ -443,7 +427,7 @@ export default function CourseLevelManagerPanel({
 
   function nextLevelFor(course: CourseLevelItem): number {
     const row = effective.rows.get(course.id);
-    const key = scopeKey(course.root_course_group_id, course.subject_id, row?.cycleId ?? course.cycle_id);
+    const key = scopeKey(course.root_course_group_id, course.subject_id, row?.cycleId ?? null);
     const levels = effective.entries
       .filter((entry) => scopeKey(entry.rootGroupId, entry.subjectId, entry.cycleId) === key && entry.level !== null)
       .map((entry) => entry.level as number);
@@ -461,10 +445,6 @@ export default function CourseLevelManagerPanel({
     }
     if (!row.canEditLevel) {
       setRowError(course.id, row.readOnlyReason ?? "This course's level is managed elsewhere.");
-      return false;
-    }
-    if (!continuation && !row.cycleId) {
-      setRowError(course.id, "Add a cycle to this course before setting its level.");
       return false;
     }
     const groupCourse = row.groupCourse ?? course;
@@ -515,7 +495,7 @@ export default function CourseLevelManagerPanel({
       } else {
         await apiJson(`/api/v1/admin/courses/${course.id}/level`, {
           method: "PUT",
-          body: JSON.stringify({ level, cycle_id: course.cycle_id }),
+          body: JSON.stringify({ level, cycle_id: row.cycleId }),
         });
         onCoursesChange((previous) => previous.map((item) => item.id === course.id ? { ...item, level } : item));
       }
@@ -760,10 +740,6 @@ export default function CourseLevelManagerPanel({
     });
   const groupCourseOptions = [{ value: "", label: "— Unassigned —" }, ...groups.map((group) => ({ value: group.id, label: group.name }))];
   const selectedGroupDetails = selectedGroup ? groupStatusFor(selectedGroup) : { status: "empty" as LevelStatus, label: "Empty", gaps: 0 };
-  const selectedEntries = selectedGroup && !selectedGroup.virtual
-    ? effective.entries.filter((entry) => entry.rootGroupId === selectedGroup.id)
-    : [];
-  const selectedMissingCycleEntry = selectedEntries.find((entry) => entry.missingCycle) ?? null;
   const selectedLinkedCount = selectedCourses.filter((course) => effective.rows.get(course.id)?.mergeGroup).length;
   const selectedHasContinuation = selectedCourses.some((course) => Boolean(effective.rows.get(course.id)?.mergeGroup?.rule_source_course_code));
   const addError = rowErrors.__add__ ?? (newLevelCourseId ? rowErrors[newLevelCourseId] : undefined) ?? null;
@@ -988,19 +964,6 @@ export default function CourseLevelManagerPanel({
                   </div>
                 ) : null}
 
-                {selectedMissingCycleEntry ? (
-                  <div role="status" className="mt-3 rounded-sm border border-[var(--color-wi-amber)]/40 bg-[var(--color-wi-amber-bg)] px-3 py-3 text-xs">
-                    <p className="font-semibold text-[var(--color-wi-text)]">A level is set without a cycle</p>
-                    <p className="mt-1 text-[var(--color-wi-text)]">
-                      This group cannot be Ready until every levelled course has a cycle, because levels are scoped by subject and cycle.
-                    </p>
-                    <Link to={`/courses/${selectedMissingCycleEntry.setupCourseId}`} className="mt-1 inline-flex min-h-[28px] items-center gap-1 font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">
-                      Open course setup for {selectedMissingCycleEntry.code}
-                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                    </Link>
-                  </div>
-                ) : null}
-
                 {selectedLinkedCount > 0 ? (
                   <div className="mt-3 rounded-sm border border-wi-line bg-[var(--color-wi-callout)] px-3 py-3 text-xs">
                     <p className="font-semibold text-[var(--color-wi-text)]">{selectedLinkedCount} linked {selectedLinkedCount === 1 ? "course" : "courses"} in this group</p>
@@ -1135,11 +1098,6 @@ export default function CourseLevelManagerPanel({
                               />
                             </div>
                             {rowError ? <p id={errorId} role="alert" className="mt-1 max-w-xs text-xs font-medium text-[var(--color-wi-red-dark)]">{rowError}</p> : levelNote ? <p id={noteId} className="mt-1 max-w-xs text-xs text-[var(--color-wi-text-light)]">{levelNote}</p> : null}
-                            {row && !row.cycleId ? (
-                              <p className="mt-1 text-xs">
-                                <Link to={`/courses/${row.setupCourseId}`} aria-label={`Open course setup for ${row.setupCourseId === course.id ? course.code : row.mergeGroup?.rule_source_course_code ?? course.code}`} className="font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">Open course setup</Link>
-                              </p>
-                            ) : null}
                             {row?.mergeGroup ? (
                               <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
                                 <Link to={SIT_IN_RULES_HREF} className="font-medium text-[var(--color-wi-primary)] underline-offset-2 hover:underline">Manage link in Sit-in Rules</Link>

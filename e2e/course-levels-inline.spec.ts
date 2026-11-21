@@ -32,6 +32,19 @@ async function installCourseLevelRoutes(page: Page, fixture: {
       await route.fulfill({ json: { items: courses, total: courses.length, limit: 100, offset: 0 } });
       return;
     }
+    const courseLevel = path.match(/^\/api\/v1\/admin\/courses\/([^/]+)\/level$/);
+    if (request.method() === "PUT" && courseLevel) {
+      const course = courses.find((item) => item.id === courseLevel[1]);
+      if (!course) {
+        await route.fulfill({ status: 404, json: { message: "Course not found" } });
+        return;
+      }
+      const body = request.postDataJSON() as { level: number; cycle_id: string | null };
+      course.level = body.level;
+      course.cycle_id = body.cycle_id;
+      await route.fulfill({ json: { status: "ok" } });
+      return;
+    }
     const assignment = path.match(/^\/api\/v1\/admin\/courses\/([^/]+)\/root-course-group$/);
     if (request.method() === "PUT" && assignment) {
       if (assignmentState.failNext) {
@@ -120,6 +133,30 @@ const C4_LINK: CourseMergeGroupConfig = {
   course_names: ["SAT Math: Beginner C4", "SAT Math: Beginner C4 (split)"], rule_source_course_code: "26453296000",
 };
 
+test("adding a standalone level without a cycle keeps it after reload", async ({ page }) => {
+  await installCourseLevelRoutes(page, {
+    courses: [{ ...COURSES[2], cycle_id: null, cycle_label: null }],
+  });
+  await page.goto("/course-levels");
+
+  const manager = page.getByRole("region", { name: "Course level manager" });
+  const course = manager.getByRole("combobox", { name: "Course for new level" });
+  await course.fill("MATH-301");
+  await page.getByRole("option", { name: /MATH-301/ }).click();
+  const saved = page.waitForRequest((request) => request.method() === "PUT" && request.url().endsWith("/api/v1/admin/courses/c3/level"));
+  await manager.getByRole("button", { name: "Add level" }).click();
+  expect((await saved).postDataJSON()).toEqual({ level: 1, cycle_id: null });
+
+  const table = page.getByRole("region", { name: "Course levels table" });
+  const row = table.getByRole("row", { name: /MATH-301/ });
+  const level = row.getByRole("spinbutton", { name: "Level for MATH-301" });
+  await expect(level).toHaveValue("1");
+  await page.reload();
+  await expect(level).toHaveValue("1");
+  await expect(row).toContainText("No cycle");
+  await expect(page.getByRole("region", { name: "SAT Math", exact: true }).getByText("Ready", { exact: true })).toBeVisible();
+});
+
 test("removing a continuation from its course group keeps both courses and their shared level", async ({ page }) => {
   const routes = await installCourseLevelRoutes(page, {
     courses: [
@@ -203,7 +240,7 @@ test("setting a continuation level updates both linked rows and persists without
   const reloadedTable = page.getByRole("region", { name: "Course levels table" });
   await expect(reloadedTable.getByRole("row").filter({ hasText: "26453296000" }).getByRole("spinbutton", { name: "Level for 26453296000" })).toHaveValue("4");
   await expect(reloadedTable.getByRole("row").filter({ hasText: "262073290700" }).getByRole("spinbutton", { name: "Level for 262073290700" })).toHaveValue("4");
-  await expect(page.getByRole("region", { name: "SAT MATH C4/2026", exact: true }).getByText("Needs attention", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "SAT MATH C4/2026", exact: true }).getByText("Ready", { exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectManagerAccessible(page);
 });

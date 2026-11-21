@@ -143,6 +143,28 @@ func TestCourseCycleLevel(t *testing.T) {
 		}
 	})
 
+	t.Run("SetLevelWithoutCycle", func(t *testing.T) {
+		tx, err := dbpool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		qtx := q.WithTx(tx)
+		for _, id := range []pgtype.UUID{c2.ID, c3.ID} {
+			if err := qtx.CourseLevelUpdateV2(ctx, id, pgtype.Text{}, pgtype.Int2{Int16: 1, Valid: true}); err != nil {
+				t.Fatal(err)
+			}
+			var cycleID pgtype.Text
+			var level pgtype.Int2
+			if err := tx.QueryRow(ctx, `SELECT cycle_id, level FROM courses WHERE id = $1`, id).Scan(&cycleID, &level); err != nil {
+				t.Fatal(err)
+			}
+			if cycleID.Valid || !level.Valid || level.Int16 != 1 {
+				t.Fatalf("stored cycle=%v level=%v, want NULL and 1", cycleID, level)
+			}
+		}
+	})
+
 	t.Run("UniqueConstraintEnforced", func(t *testing.T) {
 		err := q.CourseLevelUpdateV2(ctx, c2.ID,
 			pgtype.Text{String: cycle.ID, Valid: true},

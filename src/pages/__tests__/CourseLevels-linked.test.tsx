@@ -135,12 +135,8 @@ describe("CourseLevels linked courses", () => {
     expect(within(sourceRow).getByRole("spinbutton", { name: "Level for MATH-101" })).toHaveValue(2);
     expect(within(sourceRow).getByText("No cycle")).toBeInTheDocument();
     expect(within(sourceRow).queryByText("Cycle 2025-01")).not.toBeInTheDocument();
-    expect(within(manager).getAllByText("Needs attention").length).toBeGreaterThan(0);
-    expect(within(manager).queryByText("Ready")).not.toBeInTheDocument();
-    expect(within(manager).getByText("A level is set without a cycle")).toBeInTheDocument();
-    const setupLinks = within(manager).getAllByRole("link", { name: /Open course setup for MATH-101/ });
-    expect(setupLinks.length).toBeGreaterThan(0);
-    for (const link of setupLinks) expect(link).toHaveAttribute("href", "/courses/c1");
+    expect(within(within(manager).getByRole("region", { name: "SAT Math" })).getByText("Ready")).toBeInTheDocument();
+    expect(within(manager).queryByText("A level is set without a cycle")).not.toBeInTheDocument();
   });
 
   it("names the canonical linked course when a duplicate level is rejected", async () => {

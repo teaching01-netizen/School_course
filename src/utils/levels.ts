@@ -7,8 +7,8 @@ export type CourseLevelItem = {
   subject_id: string;
   subject_code: string;
   subject_name: string;
-  cycle_id: string;
-  cycle_label: string;
+  cycle_id: string | null;
+  cycle_label: string | null;
   level: number | null;
   root_course_group_id: string | null;
   root_course_group_name: string | null;
@@ -153,10 +153,11 @@ export function buildRootGroupHierarchy(
       root.subjects.push(subject);
     }
 
-    if (!subject.cycles[c.cycle_id]) {
-      subject.cycles[c.cycle_id] = { cycleId: c.cycle_id, cycleLabel: c.cycle_label, courses: [] };
+    const cycleId = c.cycle_id ?? "";
+    if (!subject.cycles[cycleId]) {
+      subject.cycles[cycleId] = { cycleId, cycleLabel: c.cycle_label ?? "No cycle", courses: [] };
     }
-    subject.cycles[c.cycle_id].courses.push(c);
+    subject.cycles[cycleId].courses.push(c);
   }
 
   for (const root of Object.values(roots)) {

@@ -20,8 +20,8 @@ type CardCourse = {
   name: string;
   subject_name: string;
   level: number | null;
-  cycle_label: string;
-  cycle_id: string;
+  cycle_label: string | null;
+  cycle_id: string | null;
 };
 
 type CardGroup = {

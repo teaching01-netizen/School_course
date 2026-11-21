@@ -33,18 +33,47 @@ describe("CourseLevels rule and membership guards", () => {
     );
   });
 
-  it("disables a row whose course has no cycle and links to course setup", async () => {
+  it("saves an inline level edit for a course without a cycle", async () => {
     const courses = [{ ...COURSES[0], cycle_id: "", cycle_label: "" }, ...COURSES.slice(1)];
     setupCourseLevelsApi(mockApiJson, { courses, groups: GROUPS_WITH_RULE });
     render(renderWithProviders(<CourseLevels />));
     const manager = await screen.findByRole("region", { name: "Course level manager" });
     const row = within(manager).getByText("MATH-101").closest("tr") as HTMLElement;
 
-    expect(within(row).getByRole("spinbutton", { name: "Level for MATH-101" })).toBeDisabled();
-    expect(within(row).getByText(/Add a cycle to this course/)).toBeInTheDocument();
-    const setupLinks = within(manager).getAllByRole("link", { name: "Open course setup for MATH-101" });
-    expect(setupLinks.length).toBeGreaterThan(0);
-    for (const link of setupLinks) expect(link).toHaveAttribute("href", "/courses/c1");
+    const input = within(row).getByRole("spinbutton", { name: "Level for MATH-101" });
+    const save = within(row).getByRole("button", { name: "Save level for MATH-101" });
+    const user = userEvent.setup();
+    expect(input).toBeEnabled();
+    await user.clear(input);
+    await user.type(input, "2");
+    await user.click(save);
+
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/admin/courses/c1/level", {
+      method: "PUT", body: JSON.stringify({ level: 2, cycle_id: null }),
+    });
+    await waitFor(() => expect(save).toBeDisabled());
+    expect(input).toHaveValue(2);
+    expect(within(row).getByText("No cycle")).toBeInTheDocument();
+    expect(within(row).queryByRole("link", { name: /Open course setup/ })).not.toBeInTheDocument();
+  });
+
+  it("includes a course without a cycle in Add level", async () => {
+    const courses = [...COURSES.slice(0, 2), { ...COURSES[2], cycle_id: null, cycle_label: null }];
+    setupCourseLevelsApi(mockApiJson, { courses, groups: GROUPS_WITH_RULE });
+    render(renderWithProviders(<CourseLevels />));
+    const manager = await screen.findByRole("region", { name: "Course level manager" });
+    const user = userEvent.setup();
+    const course = within(manager).getByRole("combobox", { name: "Course for new level" });
+    await user.click(course);
+    await user.type(course, "MATH-301");
+    await user.click(await screen.findByRole("option", { name: /MATH-301/ }));
+    expect(within(manager).getByRole("spinbutton", { name: "Level" })).toHaveValue(1);
+    await user.click(within(manager).getByRole("button", { name: "Add level" }));
+
+    expect(mockApiJson).toHaveBeenCalledWith("/api/v1/admin/courses/c3/level", {
+      method: "PUT", body: JSON.stringify({ level: 1, cycle_id: null }),
+    });
+    await waitFor(() => expect(within(manager).getByRole("spinbutton", { name: "Level for MATH-301" })).toHaveValue(1));
   });
 
   it("retains the rule selection when the rule mutation fails", async () => {

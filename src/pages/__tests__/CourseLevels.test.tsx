@@ -122,7 +122,7 @@ describe("CourseLevels", () => {
     );
   });
 
-  it("never marks a group Ready when a levelled course has no cycle", async () => {
+  it("marks a configured group Ready when its levels are set, even without a cycle", async () => {
     const courses = [
       { ...COURSES[0], cycle_id: "", cycle_label: "", level: 1 },
       { ...COURSES[1], level: 2 },
@@ -132,12 +132,8 @@ describe("CourseLevels", () => {
     render(renderWithProviders(<CourseLevels />));
     const manager = await screen.findByRole("region", { name: "Course level manager" });
 
-    expect(within(manager).getAllByText("Needs attention").length).toBeGreaterThan(0);
-    expect(within(manager).queryByText("Ready")).not.toBeInTheDocument();
-    expect(within(manager).getByText("A level is set without a cycle")).toBeInTheDocument();
-    const setupLinks = within(manager).getAllByRole("link", { name: /Open course setup for MATH-101/ });
-    expect(setupLinks.length).toBeGreaterThan(0);
-    for (const link of setupLinks) expect(link).toHaveAttribute("href", "/courses/c1");
+    expect(within(within(manager).getByRole("region", { name: "SAT Math" })).getByText("Ready")).toBeInTheDocument();
+    expect(within(manager).queryByText("A level is set without a cycle")).not.toBeInTheDocument();
   });
 
   it("keeps the page heading visible while loading and retries a failed required load", async () => {

@@ -9,7 +9,7 @@ export type ReturnsDeskEntry = {
   courseId: string;
   courseCode: string;
   attemptedLevel: number | null;
-  cycleId: string;
+  cycleId: string | null;
   error: { code: string; message: string; conflicts?: unknown };
   timestamp: number;
   expiresAt: number;
