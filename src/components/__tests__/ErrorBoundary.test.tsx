@@ -60,11 +60,14 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("App content")).toBeInTheDocument();
   });
 
-  it("recovers a chunk-load error by reloading the new build", () => {
+  it.each([
+    "Failed to fetch dynamically imported module: /assets/Home-1.js",
+    "Unable to preload CSS for /assets/Home-1.css",
+  ])("reloads the new build after %s", (message) => {
     const recover = vi.fn(() => true);
     render(
       <ErrorBoundary recoverFromChunkError={recover}>
-        <Bomb error={new Error("Failed to fetch dynamically imported module: /assets/Home-1.js")} />
+        <Bomb error={new Error(message)} />
       </ErrorBoundary>,
     );
     expect(recover).toHaveBeenCalledTimes(1);

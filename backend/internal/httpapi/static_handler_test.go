@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestStaticHandler_ServesFilesAndFallsBackForClientRoutes guards the SPA static
@@ -52,9 +53,12 @@ func TestStaticHandler_ServesFilesAndFallsBackForClientRoutes(t *testing.T) {
 		if got := rec.Body.String(); got == index {
 			t.Fatalf("404 response body must not be index.html")
 		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("cache-control = %q, want no-store", got)
+		}
 	})
 
-	t.Run("client route falls back to index.html with no-cache", func(t *testing.T) {
+	t.Run("client route falls back to index.html with no-store", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/operations/schedule-impact", nil))
 		if rec.Code != http.StatusOK {
@@ -63,19 +67,19 @@ func TestStaticHandler_ServesFilesAndFallsBackForClientRoutes(t *testing.T) {
 		if got := rec.Body.String(); got != index {
 			t.Fatalf("body = %q, want index.html", got)
 		}
-		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
-			t.Fatalf("cache-control = %q, want no-cache", got)
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("cache-control = %q, want no-store", got)
 		}
 	})
 
-	t.Run("index.html itself serves with no-cache", func(t *testing.T) {
+	t.Run("root serves index.html with no-store", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
-		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
-			t.Fatalf("cache-control = %q, want no-cache", got)
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("cache-control = %q, want no-store", got)
 		}
 	})
 
@@ -86,4 +90,38 @@ func TestStaticHandler_ServesFilesAndFallsBackForClientRoutes(t *testing.T) {
 			t.Fatalf("status = %d, want 404", rec.Code)
 		}
 	})
+}
+
+func TestStaticHandlerServesNewBuildOnNormalReload(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "index.html")
+	buildTime := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	writeBuild := func(html string) {
+		t.Helper()
+		if err := os.WriteFile(indexPath, []byte(html), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(indexPath, buildTime, buildTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeBuild(`<!doctype html><script src="/assets/index-OLD.js"></script>`)
+	newHTML := `<!doctype html><script src="/assets/index-NEW.js"></script>`
+	writeBuild(newHTML)
+
+	h := staticHandler(dir)
+	for _, path := range []string{"/", "/operations/schedule-impact"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("If-Modified-Since", buildTime.Format(http.TimeFormat))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK || rec.Body.String() != newHTML {
+				t.Fatalf("reload returned %d with body %q, want 200 with the new build", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Last-Modified"); got != "" {
+				t.Fatalf("last-modified = %q, want no timestamp validator", got)
+			}
+		})
+	}
 }

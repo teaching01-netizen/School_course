@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-// Cross-browser message formats for a failed dynamic import / chunk load.
+// Browser and bundler messages for a failed dynamic import or chunk load.
 // After a deploy, users with the previous build still open request chunk
 // hashes that no longer exist; the server 404s them (staticHandler) and the
 // browser rejects the import with one of these messages.
@@ -10,6 +10,7 @@ const CHUNK_ERROR_PATTERNS: readonly RegExp[] = [
   /importing a module script failed/i,
   /loading chunk \d+ failed/i,
   /loading css chunk \d+ failed/i,
+  /^unable to preload css for /i,
 ];
 
 export function isChunkLoadError(error: unknown): boolean {
@@ -20,7 +21,7 @@ export function isChunkLoadError(error: unknown): boolean {
 const RELOAD_GUARD_KEY = "wi.chunk-reload-at";
 const RELOAD_COOLDOWN_MS = 30_000;
 
-// index.html is served with no-cache, so a reload transparently picks up the
+// index.html is served with no-store, so a reload picks up the
 // new build's chunk hashes and re-renders the same route. The cooldown guard
 // keeps a genuinely broken deploy from turning auto-recovery into a reload
 // loop; when it trips (or storage is unavailable) the manual screen takes over.

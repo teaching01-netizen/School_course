@@ -300,6 +300,10 @@ func staticHandler(staticDir string) http.HandlerFunc {
 		}
 		full := filepath.Join(staticDir, strings.TrimPrefix(cleanPath, "/"))
 		if st, err := os.Stat(full); err == nil && !st.IsDir() {
+			if strings.EqualFold(filepath.Ext(full), ".html") {
+				serveStaticHTML(w, r, full)
+				return
+			}
 			setStaticCacheControl(w, r.URL.Path)
 			http.ServeFile(w, r, full)
 			return
@@ -308,19 +312,37 @@ func staticHandler(staticDir string) http.HandlerFunc {
 		// A missing path with a file extension is a genuine 404 (missing asset),
 		// never a client-side route.
 		if filepath.Ext(cleanPath) != "" {
+			w.Header().Set("Cache-Control", "no-store")
 			http.NotFound(w, r)
 			return
 		}
 
-		// SPA fallback: index.html must always be revalidated so browsers pick up
-		// the new build's chunk hashes after a deploy instead of pinning a stale bundle.
-		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		serveStaticHTML(w, r, filepath.Join(staticDir, "index.html"))
 	}
 }
 
+func serveStaticHTML(w http.ResponseWriter, r *http.Request, filename string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if strings.HasSuffix(r.URL.Path, "/index.html") {
+		// Preserve ServeFile's redirect from /index.html to the directory URL.
+		http.ServeFile(w, r, filename)
+		return
+	}
+
+	file, err := os.Open(filename)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+
+	// Build artifacts can reuse timestamps across releases. A zero modification
+	// time prevents ServeContent from returning 304 based on an old build's date.
+	http.ServeContent(w, r, filepath.Base(filename), time.Time{}, file)
+}
+
 // setStaticCacheControl applies cache headers for existing files: Vite content-hashes
-// build assets so they are immutable; everything else (index.html shell) revalidates.
+// build assets so they are immutable; other non-HTML files revalidate.
 func setStaticCacheControl(w http.ResponseWriter, path string) {
 	if strings.HasPrefix(path, "/assets/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
