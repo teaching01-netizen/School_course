@@ -61,7 +61,8 @@ describe("absence submission payload builder", () => {
           missed_session_ids: ["missed-b"],
           sit_in_method: "physical",
           sit_in_course_id: "sit-course",
-          sit_in_session_ids: ["sit-1"],
+          sit_in_session_ids: ["sit-1", "sit-special"],
+          special_sit_in_session_ids: ["sit-special"],
         },
       },
     ]);
@@ -69,7 +70,8 @@ describe("absence submission payload builder", () => {
     expect(result).toHaveLength(1);
     expect(result[0].course_id).toBe("course-a");
     expect(result[0].missed_session_ids).toEqual(["missed-a", "missed-b"]);
-    expect(result[0].sit_in_session_ids).toEqual(["sit-1"]);
+    expect(result[0].sit_in_session_ids).toEqual(["sit-1", "sit-special"]);
+    expect(result[0].special_sit_in_session_ids).toEqual(["sit-special"]);
   });
 
   it("excludes a selected session that is already covered by an absence", () => {

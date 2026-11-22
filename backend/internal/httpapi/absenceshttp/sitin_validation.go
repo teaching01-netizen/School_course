@@ -9,8 +9,95 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"warwick-institute/internal/absences"
 	sqldb "warwick-institute/internal/db"
 )
+
+func (s *server) validateStaffSitInSelection(w http.ResponseWriter, r *http.Request, q *sqldb.Queries, absenceID, studentID, sourceCourseID, targetCourseID pgtype.UUID, status absences.Status, body staffCreateAbsenceRequest, selected []pgtype.UUID) error {
+	special, err := parseUUIDStrings(body.SpecialSitInSessionIDs)
+	if err != nil {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Invalid Special Sit-in session ID")
+		return err
+	}
+	suggested := make([]pgtype.UUID, 0, len(selected))
+	specialIDs := make(map[pgtype.UUID]bool, len(special))
+	for _, id := range special {
+		specialIDs[id] = false
+	}
+	duplicateSpecial := false
+	for _, id := range selected {
+		if matched, ok := specialIDs[id]; ok {
+			duplicateSpecial = duplicateSpecial || matched
+			specialIDs[id] = true
+		} else {
+			suggested = append(suggested, id)
+		}
+	}
+	if duplicateSpecial || len(specialIDs) != len(special) || len(selected)-len(suggested) != len(special) {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Special Sit-ins must be distinct selected sessions")
+		return errInvalidSitInSelection
+	}
+
+	ctx := r.Context()
+	if err := lockSessionsForSubmission(ctx, q, selected); err != nil {
+		s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
+		return err
+	}
+	if s.recheckSitInSessionsHeld(w, r, q, studentID, selected) {
+		return errInvalidSitInSelection
+	}
+
+	writeDBError := func(err error) error {
+		status, code, message := s.a.ClassifyDBErr(err)
+		s.a.WriteErr(w, status, code, message)
+		return err
+	}
+	if len(special) > 0 {
+		missed, err := parseUUIDStrings(body.MissedSessionIDs)
+		if err != nil {
+			s.a.WriteErr(w, http.StatusBadRequest, "bad_missed_session_id", "Invalid missed session ID")
+			return err
+		}
+		count, err := q.ValidSpecialSitInSessionCount(ctx, absenceID, targetCourseID, special, missed, s.deps.InstituteTZ)
+		if err != nil {
+			return writeDBError(err)
+		}
+		if count != len(special) {
+			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Special Sit-ins must be active sessions in the selected course and must not overlap a missed class")
+			return errInvalidSitInSelection
+		}
+		blockers, err := q.ExpectedSessionConflictsForStudentCandidates(ctx, studentID, special, s.deps.InstituteTZ)
+		if err != nil {
+			return writeDBError(err)
+		}
+		if len(blockers) > 0 {
+			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", expectedClassConflictReason)
+			return errInvalidSitInSelection
+		}
+	}
+
+	// Preserve the existing status-only behavior for older staff API clients.
+	if len(suggested) == 0 || (body.SpecialSitInSessionIDs == nil && !shouldValidateStaffSitInSessions(status)) {
+		return nil
+	}
+	excludeFinal, err := satVerbalCourseFinalClassExcluded(ctx, q, sourceCourseID)
+	if err != nil {
+		return writeDBError(err)
+	}
+	count, err := q.ValidSitInSessionOverlap(ctx, absenceID, suggested, s.deps.InstituteTZ, excludeFinal)
+	if err != nil {
+		return writeDBError(err)
+	}
+	if count != len(suggested) {
+		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
+		return errInvalidSitInSelection
+	}
+	if err := s.validateSitInCandidates(ctx, q, absenceID, suggested); err != nil {
+		s.writeSitInValidationError(w, err)
+		return err
+	}
+	return nil
+}
 
 func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
 	if len(sessionIDs) == 0 {

@@ -356,7 +356,7 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 	t.Cleanup(dbpool.Close)
 
 	q := sqldb.New(dbpool)
-	studentWcode, _, _, _, adminUUID := seedStaffCreateData(t, q, dbpool, "SPECIAL")
+	studentWcode, subjectID, courseID, missedID, adminUUID := seedStaffCreateData(t, q, dbpool, "SPECIAL")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -396,13 +396,7 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 	}
 
 	now := time.Now().UTC()
-	missed, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
-		CourseID:  course.ID,
-		RoomID:    room.ID,
-		TeacherID: teacher,
-		StartAt:   pgtype.Timestamptz{Time: now.Add(-24 * time.Hour), Valid: true},
-		EndAt:     pgtype.Timestamptz{Time: now.Add(-23 * time.Hour), Valid: true},
-	})
+	missed, err := q.SessionGetByIDForSnapshot(ctx, makeUUID(missedID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,9 +411,7 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 		t.Fatal(err)
 	}
 
-	subjectID, _ := uuidString(subj.ID)
-	courseID, _ := uuidString(course.ID)
-	missedID, _ := uuidString(missed.ID)
+	targetCourseID, _ := uuidString(course.ID)
 	sitInID, _ := uuidString(sitIn.ID)
 
 	fa := staffFakeAuth{
@@ -441,11 +433,11 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 		"wcode":              studentWcode,
 		"subject_id":         subjectID,
 		"course_id":          courseID,
-		"date_from":          now.AddDate(0, 0, -2).Format("2006-01-02"),
-		"date_to":            now.AddDate(0, 0, 2).Format("2006-01-02"),
+		"date_from":          missed.StartAt.Time.In(time.FixedZone("ICT", 7*60*60)).Format("2006-01-02"),
+		"date_to":            missed.StartAt.Time.In(time.FixedZone("ICT", 7*60*60)).Format("2006-01-02"),
 		"missed_session_ids": []string{missedID},
 		"sit_in_method":      "physical",
-		"sit_in_course_id":   courseID,
+		"sit_in_course_id":   targetCourseID,
 		"sit_in_session_ids": []string{sitInID},
 		"reason_category":    "medical",
 		"status":             "special_approved",
@@ -462,4 +454,178 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 		staffParseResponse(t, resp, &bodyMap)
 		t.Fatalf("expected 201 Created, got %d: %v", resp.StatusCode, bodyMap)
 	}
+}
+
+func TestStaffCreate_ExplicitSpecialSitIn(t *testing.T) {
+	databaseURL := requireStaffTestDB(t)
+	migrateStaffUpOnce(t, databaseURL)
+	pool := newStaffPool(t, databaseURL)
+	t.Cleanup(pool.Close)
+	q := sqldb.New(pool)
+	wcode, subjectID, courseID, missedID, adminID := seedStaffCreateData(t, q, pool, "OVERRIDE")
+	_, targetSubjectID, targetCourseID, missedConflict, _ := seedStaffCreateData(t, q, pool, "TARGET")
+	ctx := context.Background()
+	missed, err := q.SessionGetByIDForSnapshot(ctx, makeUUID(missedID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := q.SessionGetByIDForSnapshot(ctx, makeUUID(missedConflict))
+	if err != nil {
+		t.Fatal(err)
+	}
+	addSession := func(course string, start time.Time) string {
+		t.Helper()
+		roomID, teacherID := missed.RoomID, missed.TeacherID
+		if course == targetCourseID {
+			roomID, teacherID = target.RoomID, target.TeacherID
+		}
+		row, err := q.SessionCreate(ctx, sqldb.SessionCreateParams{
+			CourseID: makeUUID(course), RoomID: roomID, TeacherID: teacherID,
+			StartAt: pgtype.Timestamptz{Time: start, Valid: true},
+			EndAt:   pgtype.Timestamptz{Time: start.Add(time.Hour), Valid: true},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row.ID.String()
+	}
+	regularStart := missed.StartAt.Time.Add(48 * time.Hour)
+	regularID := addSession(courseID, regularStart)
+	regularConflict := addSession(targetCourseID, regularStart.Add(15*time.Minute))
+	otherTarget := addSession(targetCourseID, regularStart.Add(24*time.Hour))
+	deleted := addSession(targetCourseID, regularStart.Add(48*time.Hour))
+	finalTarget := addSession(targetCourseID, regularStart.Add(72*time.Hour))
+	if _, err := pool.Exec(ctx, "UPDATE sessions SET deleted_at = now() WHERE id = $1", deleted); err != nil {
+		t.Fatal(err)
+	}
+
+	deps := httpdeps.Deps{
+		Auth: staffFakeAuth{user: auth.AuthenticatedUser{ID: adminID, Username: "admin", Role: "Admin"}},
+		Q:    q, DB: pool, InstituteTZ: "Asia/Bangkok",
+	}
+	mux := http.NewServeMux()
+	Register(mux, deps)
+	lookup := httptest.NewRequest(http.MethodGet, "/api/v1/absences/sessions-in-range?wcode="+wcode+
+		"&date_from=1970-01-01&date_to=2100-01-01&lifetime=true&bypass_timing=true&include_all_subjects=true&subject_ids="+targetSubjectID, nil)
+	lookupResult := httptest.NewRecorder()
+	mux.ServeHTTP(lookupResult, lookup)
+	if lookupResult.Code != http.StatusOK || !strings.Contains(lookupResult.Body.String(), finalTarget) {
+		t.Fatalf("staff picker omitted the final target session: %d %s", lookupResult.Code, lookupResult.Body)
+	}
+
+	date := missed.StartAt.Time.In(time.FixedZone("ICT", 7*60*60)).Format("2006-01-02")
+	submit := func(payload []byte, batch bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/staff-create", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", uuid.NewString())
+		if batch {
+			req.Header.Set("X-Staff-Batch", "true")
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, tc := range []struct {
+		name                 string
+		selected, special    []string
+		batch                bool
+		prependValidSpecial  bool
+		wantStatus           int
+		wantMessage          string
+		wantPersistedPending int
+	}{
+		{name: "suggested remains ineligible", selected: []string{finalTarget}, wantStatus: 400, wantMessage: "no longer eligible"},
+		{name: "special does not authorize a suggested selection", selected: []string{finalTarget, otherTarget}, special: []string{finalTarget}, batch: true, wantStatus: 400, wantMessage: "no longer eligible"},
+		{name: "later invalid item rolls back a valid special sit-in", selected: []string{otherTarget}, batch: true, prependValidSpecial: true, wantStatus: 400, wantMessage: "no longer eligible"},
+		{name: "override outside selection", selected: []string{finalTarget}, special: []string{otherTarget}, wantStatus: 400, wantMessage: "distinct selected sessions"},
+		{name: "duplicate override and unselected session", selected: []string{finalTarget, finalTarget}, special: []string{finalTarget, otherTarget}, wantStatus: 400, wantMessage: "distinct selected sessions"},
+		{name: "wrong target course", selected: []string{regularID}, special: []string{regularID}, wantStatus: 400, wantMessage: "selected course"},
+		{name: "deleted target", selected: []string{deleted}, special: []string{deleted}, wantStatus: 400, wantMessage: "active sessions"},
+		{name: "missed class conflict", selected: []string{missedConflict}, special: []string{missedConflict}, wantStatus: 400, wantMessage: "overlap a missed class"},
+		{name: "regular class conflict", selected: []string{regularConflict}, special: []string{regularConflict}, batch: true, wantStatus: 400, wantMessage: expectedClassConflictReason},
+		{name: "single creates pending", selected: []string{otherTarget}, special: []string{otherTarget}, wantStatus: 201, wantPersistedPending: 1},
+		{name: "batch creates pending with final session from another subject", selected: []string{finalTarget}, special: []string{finalTarget}, batch: true, wantStatus: 201, wantPersistedPending: 2},
+		{name: "duplicate assignment", selected: []string{finalTarget}, special: []string{finalTarget}, batch: true, wantStatus: 409, wantMessage: "already assigned", wantPersistedPending: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := map[string]any{
+				"wcode": wcode, "subject_id": subjectID, "course_id": courseID, "date_from": date, "date_to": date,
+				"missed_session_ids": []string{missedID}, "sit_in_method": "physical", "sit_in_course_id": targetCourseID,
+				"sit_in_session_ids": tc.selected, "special_sit_in_session_ids": tc.special,
+			}
+			var body any = item
+			if tc.batch {
+				items := []any{item}
+				if tc.prependValidSpecial {
+					valid := make(map[string]any, len(item))
+					for key, value := range item {
+						valid[key] = value
+					}
+					valid["sit_in_session_ids"] = []string{finalTarget}
+					valid["special_sit_in_session_ids"] = []string{finalTarget}
+					items = []any{valid, item}
+				}
+				body = map[string]any{"items": items}
+			}
+			payload, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := submit(payload, tc.batch)
+			if rec.Code != tc.wantStatus || !strings.Contains(rec.Body.String(), tc.wantMessage) {
+				t.Fatalf("wanted %d with %q, got %d %s", tc.wantStatus, tc.wantMessage, rec.Code, rec.Body)
+			}
+			var absences, pendingAssignments int
+			if err := pool.QueryRow(ctx, `
+				SELECT count(DISTINCT sa.id), count(si.session_id) FILTER (WHERE sa.status = 'pending')
+				FROM student_absences sa LEFT JOIN absence_sit_ins si ON si.absence_id = sa.id
+				WHERE sa.wcode = $1`, wcode).Scan(&absences, &pendingAssignments); err != nil {
+				t.Fatal(err)
+			}
+			if absences != tc.wantPersistedPending || pendingAssignments != tc.wantPersistedPending {
+				t.Fatalf("wanted %d pending assignments, got %d absences and %d pending assignments", tc.wantPersistedPending, absences, pendingAssignments)
+			}
+		})
+	}
+
+	t.Run("concurrent assignments commit once", func(t *testing.T) {
+		raceTarget := addSession(targetCourseID, regularStart.Add(96*time.Hour))
+		payload, err := json.Marshal(map[string]any{
+			"wcode": wcode, "subject_id": subjectID, "course_id": courseID, "date_from": date, "date_to": date,
+			"missed_session_ids": []string{missedID}, "sit_in_method": "physical", "sit_in_course_id": targetCourseID,
+			"sit_in_session_ids": []string{raceTarget}, "special_sit_in_session_ids": []string{raceTarget},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ready := make(chan struct{}, 2)
+		start := make(chan struct{})
+		results := make(chan *httptest.ResponseRecorder, 2)
+		for range 2 {
+			go func() {
+				ready <- struct{}{}
+				<-start
+				results <- submit(payload, false)
+			}()
+		}
+		<-ready
+		<-ready
+		close(start)
+		statuses := make(map[int]int)
+		for range 2 {
+			rec := <-results
+			statuses[rec.Code]++
+			t.Logf("%d %s", rec.Code, rec.Body)
+		}
+		if statuses[http.StatusCreated] != 1 || statuses[http.StatusConflict] != 1 {
+			t.Fatalf("wanted one successful assignment and one conflict, got %v", statuses)
+		}
+		var count int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM absence_sit_ins WHERE session_id = $1", raceTarget).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("wanted one persisted assignment, got %d", count)
+		}
+	})
 }

@@ -801,6 +801,8 @@ describe("StaffCreateAbsenceModal", () => {
       expect(body.sit_in_method).toBe("physical");
       expect(body.sit_in_course_id).toBe("c-special-alt");
       expect(body.sit_in_session_ids).toEqual(["sit-special"]);
+      expect(body.items[0].special_sit_in_session_ids).toEqual(["sit-special"]);
+      expect(body.items[0].status).toBeUndefined();
     });
   });
 

@@ -220,28 +220,9 @@ func (s *server) createStaffAbsenceTx(
 		return "", nil, err
 	}
 
-	if len(body.SitInSessionIDs) > 0 {
-		if shouldValidateStaffSitInSessions(requestedStatus) {
-			excludeFinal, err := satVerbalCourseFinalClassExcluded(r.Context(), qtx, course.CourseID)
-			if err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return "", nil, err
-			}
-			count, err := qtx.ValidSitInSessionOverlap(r.Context(), row.ID, sessionUUIDs, s.deps.InstituteTZ, excludeFinal)
-			if err != nil {
-				status, code, msg := s.a.ClassifyDBErr(err)
-				s.a.WriteErr(w, status, code, msg)
-				return "", nil, err
-			}
-			if count != len(sessionUUIDs) {
-				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
-				return "", nil, fmt.Errorf("invalid sit-in sessions")
-			}
-			if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs); err != nil {
-				s.writeSitInValidationError(w, err)
-				return "", nil, err
-			}
+	if len(sessionUUIDs) > 0 || len(body.SpecialSitInSessionIDs) > 0 {
+		if err := s.validateStaffSitInSelection(w, r, qtx, row.ID, student.ID, course.CourseID, sitInCourseID, requestedStatus, body, sessionUUIDs); err != nil {
+			return "", nil, err
 		}
 		sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))
 		for _, sid := range sessionUUIDs {
@@ -253,20 +234,6 @@ func (s *server) createStaffAbsenceTx(
 				}
 			}
 			sitInInputs = append(sitInInputs, input)
-		}
-		// Step-9.4: AbsenceSitInsCreateWithSnapshot fences the session rows
-		// (FOR UPDATE, ID order) before its snapshot reads; re-check
-		// same-student conflicts AFTER fencing (the student lock held since
-		// F1 serializes same-student writers, so a concurrent same-student
-		// insert is visible here). Abort on conflict.
-		if len(sessionUUIDs) > 0 {
-			if err := lockSessionsForSubmission(r.Context(), qtx, sessionUUIDs); err != nil {
-				s.a.WriteErr(w, http.StatusInternalServerError, "internal", "Could not fence sit-in sessions")
-				return "", nil, err
-			}
-			if s.recheckSitInSessionsHeld(w, r, qtx, student.ID, sessionUUIDs) {
-				return "", nil, err
-			}
 		}
 		if err := qtx.AbsenceSitInsCreateWithSnapshot(r.Context(), row.ID, sitInInputs, s.deps.InstituteTZ, BuildSnapshotFromSessionRow); err != nil {
 			s.writeSessionSnapshotResult(w, err)

@@ -1342,7 +1342,12 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       if (hasSpecialSitIn) {
         const partitions = new Map<
           string,
-          { missed: string[]; sessions: string[]; method: string | undefined }
+          {
+            missed: string[];
+            sessions: Set<string>;
+            specialSessions: Set<string>;
+            method: string | undefined;
+          }
         >();
         const suggestedSitInCourseId =
           selectedSitInCourseIDForScope(
@@ -1386,11 +1391,16 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
                 ? sitIn.sit_in_method
                 : undefined;
           }
-          const bucket =
-            partitions.get(courseId) ?? { missed: [], sessions: [], method };
+          const bucket = partitions.get(courseId) ?? {
+            missed: [],
+            sessions: new Set<string>(),
+            specialSessions: new Set<string>(),
+            method,
+          };
           bucket.missed.push(missedId);
           for (const sid of sessionIds) {
-            if (!bucket.sessions.includes(sid)) bucket.sessions.push(sid);
+            bucket.sessions.add(sid);
+            if (isSpecial) bucket.specialSessions.add(sid);
           }
           bucket.method = method ?? bucket.method;
           partitions.set(courseId, bucket);
@@ -1413,7 +1423,8 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
             missed_session_ids: bucket.missed,
             sit_in_method: bucket.method,
             sit_in_course_id: bucket.method ? courseId : undefined,
-            sit_in_session_ids: bucket.sessions,
+            sit_in_session_ids: [...bucket.sessions],
+            special_sit_in_session_ids: [...bucket.specialSessions],
             reason_category: reasonCategory || undefined,
             reason: reason || undefined,
             status:
@@ -1468,6 +1479,7 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
         sit_in_method: sitInMethod,
         sit_in_course_id: sitInMethod ? sitInCourseId : undefined,
         sit_in_session_ids: uniqueSitInSessionIds,
+        special_sit_in_session_ids: [],
         reason_category: reasonCategory || undefined,
         reason: reason || undefined,
         status: absenceType === "special" ? "special_approved" : undefined,

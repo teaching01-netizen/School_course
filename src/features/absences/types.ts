@@ -144,6 +144,7 @@ export type StaffCreateAbsenceRequest = {
   sit_in_method?: string;
   sit_in_course_id?: string;
   sit_in_session_ids: string[];
+  special_sit_in_session_ids?: string[];
   reason?: string;
   reason_category?: string;
   status?: "pending" | "special_approved";

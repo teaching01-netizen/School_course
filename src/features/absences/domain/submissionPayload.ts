@@ -43,7 +43,7 @@ type MergeableAbsenceItem = Pick<
   | "sit_in_session_ids"
   | "sit_in_course_id"
   | "sit_in_method"
->;
+> & { special_sit_in_session_ids?: string[] };
 
 export function mergeAbsenceBatchItemsByScope<T extends MergeableAbsenceItem>(
   entries: Array<{ scopeKey: string; item: T }>,
@@ -69,6 +69,14 @@ export function mergeAbsenceBatchItemsByScope<T extends MergeableAbsenceItem>(
     current.sit_in_session_ids = [
       ...new Set([...current.sit_in_session_ids, ...item.sit_in_session_ids]),
     ];
+    if (current.special_sit_in_session_ids || item.special_sit_in_session_ids) {
+      current.special_sit_in_session_ids = [
+        ...new Set([
+          ...(current.special_sit_in_session_ids ?? []),
+          ...(item.special_sit_in_session_ids ?? []),
+        ]),
+      ];
+    }
   }
   return [...merged.values()];
 }

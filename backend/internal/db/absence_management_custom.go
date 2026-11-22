@@ -1216,12 +1216,21 @@ func (q *Queries) ValidSitInSessionCount(ctx context.Context, absenceID, courseI
 }
 
 func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string, excludeFinal bool) (int, error) {
+	return q.validSitInSessionOverlap(ctx, absenceID, sessionIDs, instituteTZ, excludeFinal, pgtype.UUID{}, nil)
+}
+
+func (q *Queries) ValidSpecialSitInSessionCount(ctx context.Context, absenceID, targetCourseID pgtype.UUID, sessionIDs, missedIDs []pgtype.UUID, instituteTZ string) (int, error) {
+	return q.validSitInSessionOverlap(ctx, absenceID, sessionIDs, instituteTZ, false, targetCourseID, missedIDs)
+}
+
+func (q *Queries) validSitInSessionOverlap(ctx context.Context, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, instituteTZ string, excludeFinal bool, targetCourseID pgtype.UUID, missedIDs []pgtype.UUID) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
 		SELECT count(*)
 		FROM sessions sess
 		WHERE sess.id = ANY($2::uuid[])
 		  AND sess.deleted_at IS NULL
+		  AND ($5::uuid IS NULL OR sess.course_id = $5)
 		  AND (NOT $4 OR EXISTS (
 		    SELECT 1
 		    FROM sessions later
@@ -1247,12 +1256,12 @@ func (q *Queries) ValidSitInSessionOverlap(ctx context.Context, absenceID pgtype
 			)
 		    WHERE sa.id = $1
 		      AND missed.deleted_at IS NULL
-		      AND student_is_expected_at_session_tz(st.id, missed.id, $3)
+		      AND (missed.id = ANY($6::uuid[]) OR student_is_expected_at_session_tz(st.id, missed.id, $3))
 		      AND (missed.start_at AT TIME ZONE $3)::date BETWEEN sa.date_from AND sa.date_to
 		      AND sess.start_at < missed.end_at
 		      AND sess.end_at > missed.start_at
 		  )
-	`, absenceID, sessionIDs, instituteTZ, excludeFinal).Scan(&count)
+	`, absenceID, sessionIDs, instituteTZ, excludeFinal, targetCourseID, missedIDs).Scan(&count)
 	return count, err
 }
 
