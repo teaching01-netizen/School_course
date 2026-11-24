@@ -221,7 +221,7 @@ func (s *server) createStaffAbsenceTx(
 	}
 
 	if len(sessionUUIDs) > 0 || len(body.SpecialSitInSessionIDs) > 0 {
-		if err := s.validateStaffSitInSelection(w, r, qtx, row.ID, student.ID, course.CourseID, sitInCourseID, requestedStatus, body, sessionUUIDs); err != nil {
+		if err := s.validateStaffSitInSelection(w, r, qtx, row.ID, student.ID, course.CourseID, sitInCourseID, requestedStatus, body, sessionUUIDs, options.publicForm); err != nil {
 			return "", nil, err
 		}
 		sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))

@@ -356,7 +356,7 @@ func parseInstituteLocalDate(s string, instituteTZ string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return t.UTC(), nil
+	return t, nil
 }
 
 // sessionDateKey renders the institute-local calendar day of a session.
@@ -834,7 +834,7 @@ func (s *server) handleAbsenceCreate(w http.ResponseWriter, r *http.Request) {
 				s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
 				return 0, nil, fmt.Errorf("invalid sessions")
 			}
-			if err := s.validateSitInCandidates(r.Context(), qtx, item.ID, sessionUUIDs); err != nil {
+			if err := s.validateSitInCandidates(r.Context(), qtx, item.ID, sessionUUIDs, true); err != nil {
 				s.writeSitInValidationError(w, err)
 				return 0, nil, err
 			}
@@ -1907,7 +1907,7 @@ func (s *server) handlePoliciesUpdate(w http.ResponseWriter, r *http.Request) {
 	adminID := actorID(user.ID)
 	s.a.WithIdempotentTx(w, r, user.ID, "absence-policies", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		settings, err := qtx.AppSettingsGetWithPolicies(r.Context())
+		settings, err := qtx.AppSettingsGetWithPoliciesForUpdate(r.Context())
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)

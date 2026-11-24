@@ -1,0 +1,38 @@
+[
+  {
+    "argv": [
+      "lake",
+      "build"
+    ],
+    "exit_status": 0,
+    "output": "lean-build.log"
+  },
+  {
+    "argv": [
+      "lake",
+      "env",
+      "lean",
+      "proof/Audit.lean"
+    ],
+    "exit_status": 0,
+    "output": "theorems-and-axioms.log"
+  },
+  {
+    "argv": [
+      "lake",
+      "env",
+      "lean",
+      "--version"
+    ],
+    "exit_status": 0,
+    "output": "lean-version.log"
+  },
+  {
+    "argv": [
+      "lake",
+      "--version"
+    ],
+    "exit_status": 0,
+    "output": "lake-version.log"
+  }
+]

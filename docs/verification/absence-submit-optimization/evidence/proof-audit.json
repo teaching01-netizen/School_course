@@ -1,0 +1,27 @@
+{
+  "formal_status": "PROVED",
+  "theorem_count": 23,
+  "lean": "Lean (version 4.19.0, arm64-apple-darwin23.6.0, commit 6caaee842e94, Release)",
+  "lake": "Lake version 5.0.0-6caaee8 (Lean version 4.19.0)",
+  "allowed_axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+  ],
+  "used_axioms": [
+    "Quot.sound",
+    "propext"
+  ],
+  "source_sha256": {
+    "lean-toolchain": "55e97be96000b5e9e290c9e74482e5e317861499a5540353ce845471bded8cea",
+    "lakefile.lean": "d2abd63c62039e3259c2c8c55b13c7e8a3189e6b261558f37d69cae7cf782af6",
+    "lake-manifest.json": "3e14a77a028373f0b524b73c0c061b19b02348e22c1aac4c7cebad1940f597ec",
+    "AbsenceSubmitOptimization.lean": "38e2c1a6a3c263e51332f39a45beb67ec8a648cb0c3878434a5cf4517347e424",
+    "check.py": "0d32099df85429bc465287dc5ebcc59d8a8c0894fa524e2390e635037d85c4a3",
+    "proof/Audit.lean": "96031545c873c2bff485e4f420a7561ddda3db0ab932b1ee788e4bd1d743d719",
+    "proof/Counterexamples.lean": "f6e30677d994a60dec0cf1c6fb71267e9b34783ea9ca5c17dc547cad271e0d36",
+    "proof/Model.lean": "1b4914d0f6e7363f5b84707375ba1ff5b2ee0bf774f26fcbd0e58f54326ad35f",
+    "proof/Safety.lean": "ba00a9f732c8aa18b785f144420748cb9517dbdff23394a1d269389b5a137a5b",
+    "proof/Selection.lean": "aba9ff5f9dd3eda5b63b2496daf0ec28df9b340fd4490cfe6982aaf6134f3cd5"
+  }
+}

@@ -54,13 +54,27 @@ type AppSettingWithPolicies struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) AppSettingsGetWithPolicies(ctx context.Context) (AppSettingWithPolicies, error) {
-	var s AppSettingWithPolicies
-	err := q.db.QueryRow(ctx, `
+const selectAppSettingsWithPolicies = `
 		SELECT id, institute_tz, absence_policies, created_at, updated_at
 		FROM app_settings
 		WHERE id = true
-	`).Scan(&s.ID, &s.InstituteTz, &s.AbsencePolicies, &s.CreatedAt, &s.UpdatedAt)
+	`
+
+func (q *Queries) AppSettingsGetWithPolicies(ctx context.Context) (AppSettingWithPolicies, error) {
+	return q.appSettingsWithPolicies(ctx, selectAppSettingsWithPolicies)
+}
+
+func (q *Queries) AppSettingsGetWithPoliciesForShare(ctx context.Context) (AppSettingWithPolicies, error) {
+	return q.appSettingsWithPolicies(ctx, selectAppSettingsWithPolicies+" FOR SHARE")
+}
+
+func (q *Queries) AppSettingsGetWithPoliciesForUpdate(ctx context.Context) (AppSettingWithPolicies, error) {
+	return q.appSettingsWithPolicies(ctx, selectAppSettingsWithPolicies+" FOR NO KEY UPDATE")
+}
+
+func (q *Queries) appSettingsWithPolicies(ctx context.Context, query string) (AppSettingWithPolicies, error) {
+	var s AppSettingWithPolicies
+	err := q.db.QueryRow(ctx, query).Scan(&s.ID, &s.InstituteTz, &s.AbsencePolicies, &s.CreatedAt, &s.UpdatedAt)
 	return s, err
 }
 

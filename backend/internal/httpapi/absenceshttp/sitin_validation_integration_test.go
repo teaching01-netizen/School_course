@@ -89,7 +89,7 @@ func TestSitInSubmitValidationResolvesOnceAndChecksOnlySelectedSessions(t *testi
 			}
 			db.students, db.conflictIDs = 0, nil
 			db.sessionLoads = make(map[pgtype.UUID]int)
-			if err := s.validateSitInCandidates(ctx, q, absenceID, selected); err != nil {
+			if err := s.validateSitInCandidates(ctx, q, absenceID, selected, true); err != nil {
 				t.Fatalf("valid selection at %s rejected: %v", target, err)
 			}
 			if db.students != 1 {
@@ -136,7 +136,7 @@ func TestSitInSubmitValidationQueriesDoNotGrowWithUnselectedMappings(t *testing.
 		for i := 0; i < 21; i++ {
 			db.calls = 0
 			start := time.Now()
-			if err := s.validateSitInCandidates(ctx, q, absenceID, []pgtype.UUID{makeUUID(c.courses["rr5"].Sessions[1])}); err != nil {
+			if err := s.validateSitInCandidates(ctx, q, absenceID, []pgtype.UUID{makeUUID(c.courses["rr5"].Sessions[1])}, true); err != nil {
 				t.Fatal(err)
 			}
 			if i > 0 { // Warm the connection and query plans before sampling.
@@ -244,7 +244,7 @@ func TestSitInSubmitValidationScopesMergedTargetAndKeepsPeerSessions(t *testing.
 	q := sqldb.New(db)
 	s := &server{deps: httpdeps.Deps{Q: q, InstituteTZ: "Asia/Bangkok"}}
 	selected := []pgtype.UUID{makeUUID(c.courses["rr5"].Sessions[1]), makeUUID(c.courses["wr5"].Sessions[1])}
-	if err := s.validateSitInCandidates(ctx, q, absenceID, selected); err != nil {
+	if err := s.validateSitInCandidates(ctx, q, absenceID, selected, true); err != nil {
 		t.Fatalf("eligible merged-member sessions rejected: %v", err)
 	}
 	if len(db.sessionLoads) != 3 {
@@ -253,7 +253,7 @@ func TestSitInSubmitValidationScopesMergedTargetAndKeepsPeerSessions(t *testing.
 	if _, err := tx.Exec(ctx, `UPDATE student_absences SET sit_in_course_id=$2 WHERE id=$1`, absenceID, c.courses["rr4"].ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.validateSitInCandidates(ctx, q, absenceID, selected); !errors.Is(err, errInvalidSitInSelection) {
+	if err := s.validateSitInCandidates(ctx, q, absenceID, selected, true); !errors.Is(err, errInvalidSitInSelection) {
 		t.Fatalf("sessions outside selected target accepted: %v", err)
 	}
 }
@@ -276,7 +276,7 @@ func TestSitInSubmitValidationKeepsExpectedClassAndPolicyChecks(t *testing.T) {
 		{"outside policy", f.unrelated, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := s.validateSitInCandidates(ctx, f.q, absenceID, []pgtype.UUID{tc.session})
+			err := s.validateSitInCandidates(ctx, f.q, absenceID, []pgtype.UUID{tc.session}, true)
 			if tc.valid && err != nil || !tc.valid && !errors.Is(err, errInvalidSitInSelection) {
 				t.Fatalf("validation error = %v, want valid=%t", err, tc.valid)
 			}

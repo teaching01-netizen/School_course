@@ -1,0 +1,31 @@
+{
+  "implementation_commit": "8706618843f67d24805b3281a6100728ef92276c",
+  "migration_tree": "a452f96ca253377252fb1d029749d3898e6b952c",
+  "go_version": "go version go1.26.3 darwin/arm64",
+  "postgres": "PostgreSQL 14.23 (Homebrew) on aarch64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.6), 64-bit|read committed|on|on",
+  "schema_version": "133",
+  "production_accessed": false,
+  "sha256": {
+    "backend/go.mod": "235eb1b33a59b6a713b0fccb34b0ee0cf097cee35e95ef13aaa8201453968ce9",
+    "backend/go.sum": "e9c92b27c9a1760184663a408efd8291980d87fac4bdc60b94ca6582f633dcac",
+    "backend/internal/httpapi/absenceshttp/resolver.go": "e1d1d20c1f081a44db19166592fece9f221166018bf62b47ed9190a0a63fed15",
+    "backend/internal/httpapi/absenceshttp/sat_verbal_policy.go": "185bb7bbea3b0f50ac88cc55c5d49ffc6d1eb88aa2a090516914e68532fcaf76",
+    "backend/internal/httpapi/absenceshttp/sitin_validation.go": "9b819618cbcc1108452576143d430be1dc9bbf7ff6467451285a41b6395741fc",
+    "backend/internal/httpapi/absenceshttp/sit_in_course_validation.go": "2aed2e4e98e312dfccce65c4ee9ed2ba2d3a2c3b54331c06e45ea9319bde98b6",
+    "backend/internal/httpapi/absenceshttp/sit_in_conflict_filter.go": "864c6c8f2e067a5821580f7ac06115af72d879b215e82af5def7f8accb8264e8",
+    "backend/internal/httpapi/absenceshttp/submission_helpers.go": "af253a49855ae8f4765d42d27b7ad1103c8a02c2469292fc479e8057fbffb3b7",
+    "backend/internal/httpapi/absenceshttp/routes.go": "fb1877f4a07fd5519ca7a398cfaaf8e029dd501fad623428d082ba2694f8a5c4",
+    "backend/internal/httpapi/absenceshttp/batch_routes.go": "5c035f58c1ea70e455be9aa275d3626e1deb3f7ec27bf1a00aca73a2cc9149dc",
+    "backend/internal/httpapi/absenceshttp/staff_create.go": "3e75c8ef3fe064021f741fa7362d06829af6014c0f9d5f95d674ac4e27e4cc2b",
+    "backend/internal/httpapi/absenceshttp/staff_create_tx.go": "987eb19a0ac13c029cffec0ce1b1c0a1f3e5ae915fb4859a0be96a7d8b8f36be",
+    "backend/internal/httpapi/absenceshttp/management_routes.go": "7e0dfe731419835c1325518bdbfd079adeac6d4132b4beb35c79c1e6ed761407",
+    "backend/internal/httpapi/httpadapter/adapter.go": "5b5ba8dd64ce7c6abbe45418215f68b8e5bca025efa06db2a54dc5f9b36aabad",
+    "backend/internal/db/absence_custom.go": "22dc48a59e0f7262d28f3c851e511d6e834de99d94e46d34052a0a6242cfd0f1",
+    "backend/internal/db/absence_management_custom.go": "5280de59a40394cee15b5c669582fa07a89edd9dea788a1ddc01a008734c09d1",
+    "backend/internal/db/sat_verbal_policy_custom.go": "84bc5b84b37399da75ae03a0923f7ab73f3cc0346ae8aece574559badd5117ce",
+    "backend/internal/db/idempotency_custom.go": "98e4b3c42ed599d562148fcb4a8110525bbed9384edcde0703e0d23344f0e992",
+    "backend/internal/idempotency/idempotency.go": "b78b32d0975c2d0737d8b9eca4df1d445007d9244f30d752b8dbef05842d0186",
+    "backend/internal/httpapi/absenceshttp/formal_correspondence_test.go": "fa8b25ce00085fc43e8501f3dba7062bd4b7be251f00ee2df29106837e8346f7",
+    "backend/internal/httpapi/absenceshttp/sit_in_final_session_full_chain_integration_test.go": "48ae55bb19ea8a72b98f1bfcbd03518f41caec5662dab37a364342182715b943"
+  }
+}

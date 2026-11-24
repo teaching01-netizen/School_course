@@ -13,7 +13,7 @@ import (
 	sqldb "warwick-institute/internal/db"
 )
 
-func (s *server) validateStaffSitInSelection(w http.ResponseWriter, r *http.Request, q *sqldb.Queries, absenceID, studentID, sourceCourseID, targetCourseID pgtype.UUID, status absences.Status, body staffCreateAbsenceRequest, selected []pgtype.UUID) error {
+func (s *server) validateStaffSitInSelection(w http.ResponseWriter, r *http.Request, q *sqldb.Queries, absenceID, studentID, sourceCourseID, targetCourseID pgtype.UUID, status absences.Status, body staffCreateAbsenceRequest, selected []pgtype.UUID, studentFacing bool) error {
 	special, err := parseUUIDStrings(body.SpecialSitInSessionIDs)
 	if err != nil {
 		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Invalid Special Sit-in session ID")
@@ -92,14 +92,14 @@ func (s *server) validateStaffSitInSelection(w http.ResponseWriter, r *http.Requ
 		s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
 		return errInvalidSitInSelection
 	}
-	if err := s.validateSitInCandidates(ctx, q, absenceID, suggested); err != nil {
+	if err := s.validateSitInCandidates(ctx, q, absenceID, suggested, studentFacing); err != nil {
 		s.writeSitInValidationError(w, err)
 		return err
 	}
 	return nil
 }
 
-func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, absenceID pgtype.UUID, sessionIDs []pgtype.UUID) error {
+func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, absenceID pgtype.UUID, sessionIDs []pgtype.UUID, studentFacing bool) error {
 	if len(sessionIDs) == 0 {
 		return nil
 	}
@@ -116,16 +116,29 @@ func (s *server) validateSitInCandidates(ctx context.Context, q *sqldb.Queries, 
 	if !sourceCourseID.Valid || !subjectID.Valid || !targetCourseID.Valid || !dateFrom.Valid || !dateTo.Valid {
 		return fmt.Errorf("absence is missing sit-in policy context")
 	}
+	loc, err := instituteLocation(s.deps.InstituteTZ)
+	if err != nil {
+		return fmt.Errorf("load absence timezone: %w", err)
+	}
+	from := time.Date(dateFrom.Time.Year(), dateFrom.Time.Month(), dateFrom.Time.Day(), 0, 0, 0, 0, loc)
+	toExclusive := time.Date(dateTo.Time.Year(), dateTo.Time.Month(), dateTo.Time.Day()+1, 0, 0, 0, 0, loc)
 	started := time.Now()
 	defer func() {
 		if s.deps.Log != nil {
 			s.deps.Log.Info("sit-in submit policy validation", "duration_ms", time.Since(started).Milliseconds(), "selected_sessions", len(sessionIDs))
 		}
 	}()
-	resolved, err := resolveSitInForCourseWithOptions(ctx, q, wcode, sourceCourseID, subjectID, dateFrom.Time, dateTo.Time.AddDate(0, 0, 1), s.deps.InstituteTZ, sitInResolveOptions{
-		studentFacing:      true,
+	// Hold the policy read through commit so a disable and a suggested booking
+	// take effect in the same order in which their transactions commit.
+	settings, err := q.AppSettingsGetWithPoliciesForShare(ctx)
+	if err != nil {
+		return fmt.Errorf("lock absence policy settings: %w", err)
+	}
+	resolved, err := resolveSitInForCourseWithOptions(ctx, q, wcode, sourceCourseID, subjectID, from, toExclusive, s.deps.InstituteTZ, sitInResolveOptions{
+		studentFacing:      studentFacing,
 		selectedSessionIDs: sessionIDs,
 		targetCourseID:     targetCourseID,
+		policies:           settings.AbsencePolicies,
 	})
 	if err != nil {
 		return fmt.Errorf("resolve authorized sit-in targets: %w", err)

@@ -26,7 +26,7 @@ import (
 func (f finalSessionFixture) staffServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	admin, err := f.q.AdminUserCreate(context.Background(), sqldb.AdminUserCreateParams{
-		Username: "final-admin-" + f.courseID, Role: "Admin", PasswordHash: "x",
+		Username: "final-admin-" + f.courseID + "-" + uuid.NewString(), Role: "Admin", PasswordHash: "x",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -210,6 +210,65 @@ func TestFullChain_GenericPolicyAllowsFinalSitInSession(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestFullChain_StudentCanSubmitSuggestedRankChainTarget(t *testing.T) {
+	f := seedFinalSessionFixture(t)
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE courses SET level = 1 WHERE id = $1;
+		UPDATE courses SET level = 2 WHERE id = $2;
+		UPDATE sit_in_rules r SET type = 'rank_chain', predicate = '{"chains":[{"from_rank":1,"to_rank":2}]}'
+		FROM courses c JOIN root_course_groups g ON g.id = c.root_course_group_id
+		WHERE c.id = $1 AND r.id = g.sit_in_rule_id
+	`, f.courseID, f.targetCourseID); err != nil {
+		t.Fatal(err)
+	}
+	cycleID := "alternate-" + f.courseID
+	if _, err := f.pool.Exec(ctx, `INSERT INTO crm_cycles (id, label) VALUES ($1, $1)`, cycleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO courses (code, name, subject_id, cycle_id, level, root_course_group_id, student_booking_enabled)
+		SELECT 'Z-' || code, 'Alternate rank 2', subject_id, $2, level, root_course_group_id, true
+		FROM courses WHERE id = $1
+	`, f.targetCourseID, cycleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE sessions SET start_at = start_at - interval '17 days', end_at = end_at - interval '17 days' WHERE id = $1
+	`, f.earlierID); err != nil {
+		t.Fatal(err)
+	}
+	mux := selfServiceMux(t, f.pool)
+	token := seedVerifiedStudentSession(t, f.pool, f.wcode)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/absence-self-service/sessions", nil)
+	request.AddCookie(&http.Cookie{Name: studentauth.CookieName(false), Value: token})
+	lookup := httptest.NewRecorder()
+	mux.ServeHTTP(lookup, request)
+	assertFinalSessionResponse(t, lookup.Code, http.StatusOK, lookup.Body.Bytes())
+	var result struct {
+		Subjects []courseJSON `json:"subjects"`
+	}
+	if err := json.Unmarshal(lookup.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Subjects) != 1 || result.Subjects[0].SitIn == nil {
+		t.Fatalf("missing suggested rank-chain session: %s", lookup.Body.String())
+	}
+	sitIn := result.Subjects[0].SitIn
+	if sitIn.SitInCourse == nil || sitIn.SitInCourse.ID != f.targetCourseID || len(sitIn.AvailableSessions) != 2 || sitIn.AvailableSessions[0].ID != f.earlierID {
+		t.Fatalf("unexpected rank-chain suggestion: %+v", sitIn)
+	}
+	item := f.requestBody()
+	delete(item, "wcode")
+	item["sit_in_course_id"] = sitIn.SitInCourse.ID
+	item["sit_in_session_ids"] = []string{sitIn.AvailableSessions[0].ID}
+	response := postSelfService(t, mux, "/api/v1/absences/batch", token, map[string]any{
+		"reason": "Medical appointment", "items": []map[string]any{item},
+	})
+	assertFinalSessionResponse(t, response.Code, http.StatusCreated, response.Body.Bytes())
+	f.assertPersisted(t, f.earlierID)
 }
 
 func TestFullChain_ManualSitInUsesTargetSubjectPolicy(t *testing.T) {

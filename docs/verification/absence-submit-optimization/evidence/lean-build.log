@@ -1,0 +1,110 @@
+ℹ [2/8] Replayed proof.Selection
+info: ././././proof/Selection.lean:101:0: 'AbsenceSubmit.focus_preserves_authorization' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Selection.lean:102:0: 'AbsenceSubmit.focused_rows_are_in_scope' depends on axioms: [propext]
+info: ././././proof/Selection.lean:103:0: 'AbsenceSubmit.selected_query_includes_every_conflict' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Selection.lean:104:0: 'AbsenceSubmit.selected_conflict_is_rejected' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Selection.lean:105:0: 'AbsenceSubmit.adjacent_not_overlapping' depends on axioms: [propext]
+info: ././././proof/Selection.lean:106:0: 'AbsenceSubmit.response_independent_of_private_details' does not depend on any axioms
+info: ././././proof/Selection.lean:107:0: 'AbsenceSubmit.deadline_is_server_timeout' does not depend on any axioms
+ℹ [4/8] Replayed proof.Safety
+info: ././././proof/Safety.lean:91:0: 'AbsenceSubmit.init_invariant' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Safety.lean:92:0: 'AbsenceSubmit.step_preserves' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Safety.lean:93:0: 'AbsenceSubmit.all_reachable_safe' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Safety.lean:94:0: 'AbsenceSubmit.retained_operations_not_duplicated' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Safety.lean:95:0: 'AbsenceSubmit.active_requests_do_not_conflict' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Safety.lean:96:0: 'AbsenceSubmit.abort_publishes_no_staged_effect' does not depend on any axioms
+info: ././././proof/Safety.lean:97:0: 'AbsenceSubmit.replay_does_not_create_effect' does not depend on any axioms
+info: ././././proof/Safety.lean:98:0: 'AbsenceSubmit.validate_publishes_no_effect' does not depend on any axioms
+info: ././././proof/Safety.lean:99:0: 'AbsenceSubmit.committed_request_was_authorized' does not depend on any axioms
+info: ././././proof/Safety.lean:100:0: 'AbsenceSubmit.a_commit_is_reachable' depends on axioms: [propext, Quot.sound]
+ℹ [5/8] Replayed proof.Counterexamples
+info: ././././proof/Counterexamples.lean:49:0: 'AbsenceSubmit.naive_read_check_write_counterexample' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Counterexamples.lean:50:0: 'AbsenceSubmit.fresh_key_is_not_same_operation' does not depend on any axioms
+info: ././././proof/Counterexamples.lean:51:0: 'AbsenceSubmit.acknowledgement_is_not_commit' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Counterexamples.lean:52:0: 'AbsenceSubmit.authorization_is_nonvacuous' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Counterexamples.lean:53:0: 'AbsenceSubmit.expiry_ends_deduplication_guarantee' depends on axioms: [propext, Quot.sound]
+ℹ [7/8] Replayed proof.Audit
+info: ././././proof/Audit.lean:3:0: AbsenceSubmit.naive_read_check_write_counterexample :
+  (∀ (old : AbsenceSubmit.Request), old ∈ [] → AbsenceSubmit.Compatible AbsenceSubmit.witnessA old) ∧
+    (∀ (old : AbsenceSubmit.Request), old ∈ [] → AbsenceSubmit.Compatible AbsenceSubmit.witnessB old) ∧
+      ¬List.Pairwise AbsenceSubmit.Compatible [AbsenceSubmit.witnessA, AbsenceSubmit.witnessB]
+info: ././././proof/Audit.lean:4:0: 'AbsenceSubmit.naive_read_check_write_counterexample' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:5:0: AbsenceSubmit.fresh_key_is_not_same_operation :
+  (List.map AbsenceSubmit.Request.key [AbsenceSubmit.witnessA, AbsenceSubmit.witnessB]).Nodup ∧
+    [AbsenceSubmit.witnessA, AbsenceSubmit.witnessB].length = 2
+info: ././././proof/Audit.lean:6:0: 'AbsenceSubmit.fresh_key_is_not_same_operation' does not depend on any axioms
+info: ././././proof/Audit.lean:7:0: AbsenceSubmit.acknowledgement_is_not_commit :
+  ∃ s, AbsenceSubmit.Reachable (fun x => True) s ∧ s.history ≠ [] ∧ s.acknowledged = []
+info: ././././proof/Audit.lean:8:0: 'AbsenceSubmit.acknowledgement_is_not_commit' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:9:0: AbsenceSubmit.authorization_is_nonvacuous :
+  AbsenceSubmit.Authorized 1 none (AbsenceSubmit.focus 1 none [AbsenceSubmit.witnessCandidate]) [1] ∧
+    ¬AbsenceSubmit.Authorized 2 none [AbsenceSubmit.witnessCandidate] [1]
+info: ././././proof/Audit.lean:10:0: 'AbsenceSubmit.authorization_is_nonvacuous' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:11:0: AbsenceSubmit.expiry_ends_deduplication_guarantee :
+  let once := AbsenceSubmit.acquireExample 1 { retained := [], effects := [] };
+  let retried := AbsenceSubmit.acquireExample 1 (AbsenceSubmit.expireExample 1 once);
+  retried.effects = [1, 1]
+info: ././././proof/Audit.lean:12:0: 'AbsenceSubmit.expiry_ends_deduplication_guarantee' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:13:0: AbsenceSubmit.init_invariant (policy : AbsenceSubmit.Request → Prop) (s : AbsenceSubmit.State)
+  (h : AbsenceSubmit.Init s) : AbsenceSubmit.Invariant policy s
+info: ././././proof/Audit.lean:14:0: 'AbsenceSubmit.init_invariant' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:15:0: AbsenceSubmit.step_preserves (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  {a : AbsenceSubmit.Action} (hi : AbsenceSubmit.Invariant policy s) (h : AbsenceSubmit.Step policy s a t) :
+  AbsenceSubmit.Invariant policy t
+info: ././././proof/Audit.lean:16:0: 'AbsenceSubmit.step_preserves' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:17:0: AbsenceSubmit.all_reachable_safe (policy : AbsenceSubmit.Request → Prop) {s : AbsenceSubmit.State}
+  (h : AbsenceSubmit.Reachable policy s) : AbsenceSubmit.Invariant policy s
+info: ././././proof/Audit.lean:18:0: 'AbsenceSubmit.all_reachable_safe' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:19:0: AbsenceSubmit.retained_operations_not_duplicated (policy : AbsenceSubmit.Request → Prop) {s : AbsenceSubmit.State}
+  (h : AbsenceSubmit.Reachable policy s) : (List.map AbsenceSubmit.Request.key s.history).Nodup
+info: ././././proof/Audit.lean:20:0: 'AbsenceSubmit.retained_operations_not_duplicated' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:21:0: AbsenceSubmit.active_requests_do_not_conflict (policy : AbsenceSubmit.Request → Prop) {s : AbsenceSubmit.State}
+  (h : AbsenceSubmit.Reachable policy s) : List.Pairwise AbsenceSubmit.Compatible s.active
+info: ././././proof/Audit.lean:22:0: 'AbsenceSubmit.active_requests_do_not_conflict' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:23:0: AbsenceSubmit.abort_publishes_no_staged_effect (s : AbsenceSubmit.State) :
+  (AbsenceSubmit.released s).active = s.active ∧ (AbsenceSubmit.released s).history = s.history
+info: ././././proof/Audit.lean:24:0: 'AbsenceSubmit.abort_publishes_no_staged_effect' does not depend on any axioms
+info: ././././proof/Audit.lean:25:0: AbsenceSubmit.replay_does_not_create_effect (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  (key : Nat) (h : AbsenceSubmit.Step policy s (AbsenceSubmit.Action.replay key) t) : t.history = s.history
+info: ././././proof/Audit.lean:26:0: 'AbsenceSubmit.replay_does_not_create_effect' does not depend on any axioms
+info: ././././proof/Audit.lean:27:0: AbsenceSubmit.validate_publishes_no_effect (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  (actor : Nat) (r : AbsenceSubmit.Request)
+  (h : AbsenceSubmit.Step policy s (AbsenceSubmit.Action.validate actor r) t) :
+  t.active = s.active ∧ t.history = s.history
+info: ././././proof/Audit.lean:28:0: 'AbsenceSubmit.validate_publishes_no_effect' does not depend on any axioms
+info: ././././proof/Audit.lean:29:0: AbsenceSubmit.committed_request_was_authorized (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  (actor : Nat) (r : AbsenceSubmit.Request) (hi : AbsenceSubmit.Invariant policy s)
+  (h : AbsenceSubmit.Step policy s (AbsenceSubmit.Action.commit actor r) t) : policy r
+info: ././././proof/Audit.lean:30:0: 'AbsenceSubmit.committed_request_was_authorized' does not depend on any axioms
+info: ././././proof/Audit.lean:31:0: AbsenceSubmit.a_commit_is_reachable (policy : AbsenceSubmit.Request → Prop) (r : AbsenceSubmit.Request) (actor : Nat)
+  (allowed : policy r) :
+  AbsenceSubmit.Reachable policy { active := [r], history := [r], owner := none, staged := none, acknowledged := [] }
+info: ././././proof/Audit.lean:32:0: 'AbsenceSubmit.a_commit_is_reachable' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:33:0: AbsenceSubmit.overlap_symmetric (a b : AbsenceSubmit.Slot) : AbsenceSubmit.Overlap a b ↔ AbsenceSubmit.Overlap b a
+info: ././././proof/Audit.lean:34:0: 'AbsenceSubmit.overlap_symmetric' depends on axioms: [propext]
+info: ././././proof/Audit.lean:35:0: AbsenceSubmit.adjacent_not_overlapping (a b : AbsenceSubmit.Slot) (h : a.finish = b.start) : ¬AbsenceSubmit.Overlap a b
+info: ././././proof/Audit.lean:36:0: 'AbsenceSubmit.adjacent_not_overlapping' depends on axioms: [propext]
+info: ././././proof/Audit.lean:37:0: AbsenceSubmit.focus_preserves_authorization (target : Nat) (group : Option Nat) (rows : List AbsenceSubmit.Candidate)
+  (selected : List Nat) :
+  AbsenceSubmit.Authorized target group (AbsenceSubmit.focus target group rows) selected ↔
+    AbsenceSubmit.Authorized target group rows selected
+info: ././././proof/Audit.lean:38:0: 'AbsenceSubmit.focus_preserves_authorization' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:39:0: AbsenceSubmit.focused_rows_are_in_scope (target : Nat) (group : Option Nat) (rows : List AbsenceSubmit.Candidate)
+  (c : AbsenceSubmit.Candidate) (h : c ∈ AbsenceSubmit.focus target group rows) :
+  AbsenceSubmit.inScope target group c = true
+info: ././././proof/Audit.lean:40:0: 'AbsenceSubmit.focused_rows_are_in_scope' depends on axioms: [propext]
+info: ././././proof/Audit.lean:41:0: AbsenceSubmit.selected_query_includes_every_conflict (selected expected : List AbsenceSubmit.Candidate)
+  (c b : AbsenceSubmit.Candidate) (hc : c ∈ selected) (hb : b ∈ expected) (h : AbsenceSubmit.ExpectedConflict c b) :
+  b ∈ AbsenceSubmit.selectedBlockers selected expected
+info: ././././proof/Audit.lean:42:0: 'AbsenceSubmit.selected_query_includes_every_conflict' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:43:0: AbsenceSubmit.selected_conflict_is_rejected (selected expected : List AbsenceSubmit.Candidate)
+  (c b : AbsenceSubmit.Candidate) (hc : c ∈ selected) (hb : b ∈ expected) (h : AbsenceSubmit.ExpectedConflict c b) :
+  ¬AbsenceSubmit.PassesExpectedCheck c selected expected
+info: ././././proof/Audit.lean:44:0: 'AbsenceSubmit.selected_conflict_is_rejected' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Audit.lean:45:0: AbsenceSubmit.response_independent_of_private_details (e : AbsenceSubmit.ValidationError) (a b : String) :
+  AbsenceSubmit.publicResponse e a = AbsenceSubmit.publicResponse e b
+info: ././././proof/Audit.lean:46:0: 'AbsenceSubmit.response_independent_of_private_details' does not depend on any axioms
+info: ././././proof/Audit.lean:47:0: AbsenceSubmit.deadline_is_server_timeout (details : String) :
+  (AbsenceSubmit.publicResponse AbsenceSubmit.ValidationError.deadline details).fst = 504
+info: ././././proof/Audit.lean:48:0: 'AbsenceSubmit.deadline_is_server_timeout' does not depend on any axioms
+Build completed successfully.

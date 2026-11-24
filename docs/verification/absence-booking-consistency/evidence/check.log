@@ -1,0 +1,53 @@
+ℹ [2/5] Replayed proof.Policy
+info: ././././proof/Policy.lean:171:0: 'Booking.choose_minimum' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: ././././proof/Policy.lean:172:0: 'Booking.choose_permutation' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: ././././proof/Policy.lean:173:0: 'Booking.visibility_exact' depends on axioms: [propext]
+info: ././././proof/Policy.lean:174:0: 'Booking.explicit_override_wins' does not depend on any axioms
+info: ././././proof/Policy.lean:175:0: 'Booking.inherited_rule_keeps_priorities' depends on axioms: [propext]
+info: ././././proof/Policy.lean:176:0: 'Booking.no_applicable_priorities_uses_fallback' depends on axioms: [propext]
+info: ././././proof/Policy.lean:177:0: 'Booking.local_dates_iff_half_open' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Policy.lean:178:0: 'Booking.bangkok_early_and_next_midnight' depends on axioms: [propext, Classical.choice, Quot.sound]
+ℹ [3/5] Replayed proof.Batch
+info: ././././proof/Batch.lean:91:0: 'Booking.changed_alias_has_matching_peer' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Batch.lean:92:0: 'Booking.shares_only_same_scope_group_and_sessions' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Batch.lean:93:0: 'Booking.row_in_bucket_exact' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Batch.lean:94:0: 'Booking.all_inputs_retained' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Batch.lean:95:0: 'Booking.distinct_targets_never_share_item' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Batch.lean:96:0: 'Booking.independent_targets_stay_distinct' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Batch.lean:97:0: 'Booking.same_merged_choice_uses_first_alias' depends on axioms: [propext, Quot.sound]
+ℹ [4/5] Replayed proof.Traces
+info: ././././proof/Traces.lean:185:0: 'Booking.initial_invariant' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Traces.lean:186:0: 'Booking.step_preserves_invariant' depends on axioms: [propext]
+info: ././././proof/Traces.lean:187:0: 'Booking.reachable_is_validated' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Traces.lean:188:0: 'Booking.new_commit_publishes_exact_batch' depends on axioms: [propext]
+info: ././././proof/Traces.lean:189:0: 'Booking.abort_keeps_committed_results' does not depend on any axioms
+info: ././././proof/Traces.lean:190:0: 'Booking.retained_key_never_changes' depends on axioms: [propext]
+info: ././././proof/Traces.lean:191:0: 'Booking.ack_has_matching_durable_result' does not depend on any axioms
+info: ././././proof/Traces.lean:192:0: 'Booking.offer_can_be_revoked_before_submit' depends on axioms: [propext]
+info: ././././proof/Traces.lean:193:0: 'Booking.stage_commit_lost_ack_then_replay' depends on axioms: [propext, Quot.sound]
+info: ././././proof/Traces.lean:194:0: 'Booking.validated_before_revocation_can_still_commit' depends on axioms: [propext, Quot.sound]
+Build completed successfully.
+Audited 25 theorem statements
+KILLED Policy.choose_minimum at mutant line 56: unsolved goals
+KILLED Policy.visibility_exact at mutant line 105: unsolved goals
+KILLED Policy.inherited_rule_keeps_priorities at mutant line 126: unsolved goals
+KILLED Policy.local_dates_iff_half_open at mutant line 155: omega could not prove the goal:
+KILLED Batch.shares_only_same_scope_group_and_sessions at mutant line 41: unsolved goals
+KILLED Traces.new_commit_publishes_exact_batch at mutant line 113: unsolved goals
+=== RUN   TestBookingProbePolicyChangeBeforeCommit
+2026/11/24 10:31:47 goose: no migrations to run. current version: 133
+2026/11/24 10:31:48 INFO sit-in submit policy validation duration_ms=10 selected_sessions=1
+    booking_publication_probe_test.go:129: COUNTEREXAMPLE: policy disable committed before the paused booking COMMIT; booking still returned 201 and its assignment persisted
+--- PASS: TestBookingProbePolicyChangeBeforeCommit (0.23s)
+PASS
+ok  	warwick-institute/internal/httpapi/absenceshttp	0.844s
+=== RUN   TestSatVerbalSubmitUsesInstituteDateForEarlyMissedClass
+2026/11/24 10:31:52 goose: no migrations to run. current version: 133
+2026/11/24 10:31:52 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3839 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=40 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:31:52 INFO sit-in submit policy validation duration_ms=6 selected_sessions=1
+    sat_verbal_policy_full_chain_integration_test.go:366: status = 400, want 201; body = {"code":"invalid_sessions","message":"A selected make-up session is no longer eligible. Refresh the form and choose another session."}
+--- FAIL: TestSatVerbalSubmitUsesInstituteDateForEarlyMissedClass (0.45s)
+FAIL
+FAIL	warwick-institute/internal/httpapi/absenceshttp	0.775s
+FAIL
+KILLED Go UTC/two-day selection window: public submit returned invalid_sessions

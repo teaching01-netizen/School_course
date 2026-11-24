@@ -1,0 +1,10 @@
+=== RUN   TestFormalCorrespondenceLostAckAndConcurrentPhysicalSubmitReplay
+2026/11/24 10:24:24 goose: no migrations to run. current version: 133
+2026/11/24 10:24:24 INFO sit-in submit policy validation duration_ms=7 selected_sessions=1
+    formal_correspondence_test.go:127: lost response body followed by 16 concurrent replays across two HTTP handlers and independent pools; one absence, sit-in, and missed-session row
+--- PASS: TestFormalCorrespondenceLostAckAndConcurrentPhysicalSubmitReplay (0.31s)
+=== RUN   TestFormalCorrespondenceFocusedResolverMatchesFullPolicy
+    formal_correspondence_test.go:225: 128 coherent catalogs; 28450 selections compared; 2526 accepted, 25924 rejected
+--- PASS: TestFormalCorrespondenceFocusedResolverMatchesFullPolicy (0.54s)
+PASS
+ok  	warwick-institute/internal/httpapi/absenceshttp	1.138s

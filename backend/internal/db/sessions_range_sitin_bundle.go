@@ -98,6 +98,7 @@ type SitInBundleV2 struct {
 	SatMemberCourses []SubjectCourseV2
 	MergeNames       map[string]string
 	MergeMembers     map[string][]pgtype.UUID
+	MergeRuleIDs     map[string]pgtype.UUID
 	// Continuations marks merge groups that are one course split across IDs.
 	Continuations map[string]struct{}
 	Visible       map[string]struct{}
@@ -539,7 +540,9 @@ func scanBundlePriorities(rows pgx.Rows, bundle *SitInBundleFacts) error {
 // bundleMergeMembersSQL is the merge-members SELECT shared by the
 // standalone loader and the trip-A mid-batch.
 func bundleMergeMembersSQL() string {
-	return "SELECT m.group_id, m.course_id, g.rule_source_course_id IS NOT NULL FROM course_merge_group_members m JOIN course_merge_groups g ON g.id = m.group_id WHERE m.group_id = ANY($1::uuid[]) ORDER BY m.group_id, m.position ASC"
+	return `SELECT m.group_id, m.course_id, g.rule_source_course_id IS NOT NULL, g.sit_in_rule_id
+		FROM course_merge_group_members m JOIN course_merge_groups g ON g.id = m.group_id
+		WHERE m.group_id = ANY($1::uuid[]) ORDER BY m.group_id, m.position ASC`
 }
 
 // bundleMergeMemberGroups derives the distinct merge-group input from
@@ -570,15 +573,19 @@ func bundleMergeMemberGroups(scopeCourses []SubjectCourseV2, satMappings []SatVe
 // scanBundleMergeMembers drains one merge-members result set into out.
 func scanBundleMergeMembers(rows pgx.Rows, out *SitInBundleV2) error {
 	defer rows.Close()
+	out.MergeRuleIDs = make(map[string]pgtype.UUID)
 	for rows.Next() {
-		var gid, cid pgtype.UUID
+		var gid, cid, ruleID pgtype.UUID
 		var continuation bool
-		if err := rows.Scan(&gid, &cid, &continuation); err != nil {
+		if err := rows.Scan(&gid, &cid, &continuation, &ruleID); err != nil {
 			return err
 		}
 		k := uuidBytesString(gid)
 		if continuation {
 			out.Continuations[k] = struct{}{}
+		}
+		if ruleID.Valid {
+			out.MergeRuleIDs[k] = ruleID
 		}
 		out.MergeMembers[k] = append(out.MergeMembers[k], cid)
 	}

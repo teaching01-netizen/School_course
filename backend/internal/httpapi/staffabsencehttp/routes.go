@@ -82,7 +82,7 @@ func (s *server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.a.WithIdempotentTx(w, r, user.ID, "staff-absence-policies", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		settings, err := qtx.AppSettingsGetWithPolicies(r.Context())
+		settings, err := qtx.AppSettingsGetWithPoliciesForUpdate(r.Context())
 		if err != nil {
 			status, code, msg := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, msg)

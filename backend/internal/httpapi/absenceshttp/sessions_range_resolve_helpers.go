@@ -35,9 +35,7 @@ func enrolledV2ForSubject(b *sqldb.SitInBundleV2, subjectID pgtype.UUID) []sqldb
 			out = append(out, toEnrolledV2(e))
 		}
 	}
-	// Legacy StudentEnrolledCoursesBySubjectV2 orders by level ASC NULLS
-	// LAST. The rule engine only reads levels as a set, but keep the order
-	// identical so fallbacks (first-with-level) match.
+	// Match StudentEnrolledCoursesBySubjectV2 so first-with-level fallbacks agree.
 	sortEnrolledByLevelNULLSLast(out)
 	return out
 }
@@ -118,8 +116,9 @@ func mergeScopeForCourseFromBundle(b *sqldb.SitInBundleV2, courseID pgtype.UUID)
 		if c.ID == courseID && c.MergeGroupID.Valid {
 			if !found {
 				scope.ID = c.MergeGroupID
-				scope.Name = b.MergeNames[uuidStringOrZero(c.MergeGroupID)]
-				scope.SitInRuleID = c.SitInRuleID
+				key := uuidStringOrZero(c.MergeGroupID)
+				scope.Name = b.MergeNames[key]
+				scope.SitInRuleID = b.MergeRuleIDs[key]
 				found = true
 			}
 			scope.CourseIDs = append(scope.CourseIDs, c.ID)
@@ -145,8 +144,7 @@ func coursesByRootFromBundle(b *sqldb.SitInBundleV2, root pgtype.UUID) []sqldb.S
 			out = append(out, c)
 		}
 	}
-	// Legacy CoursesByRootCourseGroup: ORDER BY level ASC (NULLS implied
-	// last); the rule engine picks first-on-tie, so order must match.
+	// Match CoursesByRootCourseGroup: rules choose the first course at a tied level.
 	sort.SliceStable(out, func(i, j int) bool {
 		vi, vj := out[i].Level.Valid, out[j].Level.Valid
 		if vi != vj {

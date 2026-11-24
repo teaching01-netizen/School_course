@@ -1,0 +1,130 @@
+package absenceshttp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	sqldb "warwick-institute/internal/db"
+)
+
+type bookingCommitBarrier struct {
+	once    sync.Once
+	ready   chan struct{}
+	release chan struct{}
+}
+
+func (b *bookingCommitBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.EqualFold(strings.TrimSpace(data.SQL), "commit") {
+		b.once.Do(func() {
+			close(b.ready)
+			select {
+			case <-b.release:
+			case <-ctx.Done():
+			}
+		})
+	}
+	return ctx
+}
+
+func (*bookingCommitBarrier) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func TestBookingProbePolicyChangeBeforeCommit(t *testing.T) {
+	f := seedFinalSessionFixture(t)
+	admin := f.staffServer(t)
+	t.Cleanup(func() {
+		if err := f.q.AppSettingsUpdateAbsencePolicies(context.Background(), []byte(`{}`)); err != nil {
+			t.Error(err)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	barrier := &bookingCommitBarrier{ready: make(chan struct{}), release: make(chan struct{})}
+	var unblock sync.Once
+	release := func() { unblock.Do(func() { close(barrier.release) }) }
+	defer release()
+	cfg, err := pgxpool.ParseConfig(requireStaffTestDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	cfg.ConnConfig.Tracer = barrier
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	submitter := f
+	submitter.pool, submitter.q = pool, sqldb.New(pool)
+	server := submitter.staffServer(t)
+
+	newRequest := func(method, url string, value any) *http.Request {
+		t.Helper()
+		body, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Idempotency-Key", uuid.NewString())
+		return r
+	}
+	type observation struct {
+		status int
+		body   string
+		err    error
+	}
+	execute := func(client *http.Client, r *http.Request) observation {
+		response, err := client.Do(r)
+		if err != nil {
+			return observation{err: err}
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		return observation{status: response.StatusCode, body: string(body), err: err}
+	}
+	item := f.requestBody()
+	item["sit_in_session_ids"] = []string{f.earlierID}
+	item["special_sit_in_session_ids"] = []string{}
+	submit := newRequest(http.MethodPost, server.URL+"/api/v1/absences/staff-create",
+		map[string]any{"items": []any{item}})
+	submit.Header.Set("X-Staff-Batch", "true")
+	finished := make(chan observation, 1)
+	go func() { finished <- execute(server.Client(), submit) }()
+	select {
+	case <-barrier.ready:
+	case got := <-finished:
+		t.Fatalf("submit finished before commit barrier: %+v", got)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	update := newRequest(http.MethodPut, admin.URL+"/api/v1/admin/absence-policies",
+		map[string]any{"absence_policies": map[string]any{"sit_in": map[string]bool{"auto_resolve_enabled": false}}})
+	if got := execute(admin.Client(), update); got.err != nil || got.status != http.StatusOK {
+		t.Fatalf("policy update failed: %+v", got)
+	}
+	release()
+	select {
+	case got := <-finished:
+		if got.err != nil || got.status != http.StatusCreated {
+			t.Fatalf("counterexample not reproduced; submit was %+v", got)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	f.assertPersisted(t, f.earlierID)
+	t.Log("COUNTEREXAMPLE: policy disable committed before the paused booking COMMIT; booking still returned 201 and its assignment persisted")
+}

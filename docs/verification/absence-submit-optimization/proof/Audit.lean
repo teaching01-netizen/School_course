@@ -1,0 +1,48 @@
+import proof.Counterexamples
+
+#check AbsenceSubmit.naive_read_check_write_counterexample
+#print axioms AbsenceSubmit.naive_read_check_write_counterexample
+#check AbsenceSubmit.fresh_key_is_not_same_operation
+#print axioms AbsenceSubmit.fresh_key_is_not_same_operation
+#check AbsenceSubmit.acknowledgement_is_not_commit
+#print axioms AbsenceSubmit.acknowledgement_is_not_commit
+#check AbsenceSubmit.authorization_is_nonvacuous
+#print axioms AbsenceSubmit.authorization_is_nonvacuous
+#check AbsenceSubmit.expiry_ends_deduplication_guarantee
+#print axioms AbsenceSubmit.expiry_ends_deduplication_guarantee
+#check AbsenceSubmit.init_invariant
+#print axioms AbsenceSubmit.init_invariant
+#check AbsenceSubmit.step_preserves
+#print axioms AbsenceSubmit.step_preserves
+#check AbsenceSubmit.all_reachable_safe
+#print axioms AbsenceSubmit.all_reachable_safe
+#check AbsenceSubmit.retained_operations_not_duplicated
+#print axioms AbsenceSubmit.retained_operations_not_duplicated
+#check AbsenceSubmit.active_requests_do_not_conflict
+#print axioms AbsenceSubmit.active_requests_do_not_conflict
+#check AbsenceSubmit.abort_publishes_no_staged_effect
+#print axioms AbsenceSubmit.abort_publishes_no_staged_effect
+#check AbsenceSubmit.replay_does_not_create_effect
+#print axioms AbsenceSubmit.replay_does_not_create_effect
+#check AbsenceSubmit.validate_publishes_no_effect
+#print axioms AbsenceSubmit.validate_publishes_no_effect
+#check AbsenceSubmit.committed_request_was_authorized
+#print axioms AbsenceSubmit.committed_request_was_authorized
+#check AbsenceSubmit.a_commit_is_reachable
+#print axioms AbsenceSubmit.a_commit_is_reachable
+#check AbsenceSubmit.overlap_symmetric
+#print axioms AbsenceSubmit.overlap_symmetric
+#check AbsenceSubmit.adjacent_not_overlapping
+#print axioms AbsenceSubmit.adjacent_not_overlapping
+#check AbsenceSubmit.focus_preserves_authorization
+#print axioms AbsenceSubmit.focus_preserves_authorization
+#check AbsenceSubmit.focused_rows_are_in_scope
+#print axioms AbsenceSubmit.focused_rows_are_in_scope
+#check AbsenceSubmit.selected_query_includes_every_conflict
+#print axioms AbsenceSubmit.selected_query_includes_every_conflict
+#check AbsenceSubmit.selected_conflict_is_rejected
+#print axioms AbsenceSubmit.selected_conflict_is_rejected
+#check AbsenceSubmit.response_independent_of_private_details
+#print axioms AbsenceSubmit.response_independent_of_private_details
+#check AbsenceSubmit.deadline_is_server_timeout
+#print axioms AbsenceSubmit.deadline_is_server_timeout

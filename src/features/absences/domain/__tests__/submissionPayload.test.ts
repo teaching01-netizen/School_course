@@ -169,7 +169,7 @@ describe("absence submission payload builder", () => {
     });
   });
 
-  it("builds payload when selected physical sit-ins span multiple target courses", () => {
+  it.each([undefined, "merge-target"])("builds one item per target for distinct selections (target merge group %s)", (mergeGroupId) => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",
       sessions: [
@@ -191,7 +191,7 @@ describe("absence submission payload builder", () => {
               {
                 level: 1,
                 label: "Priority 1",
-                sit_in_course: { id: "target-a", code: "A", name: "Target A" },
+                sit_in_course: { id: "target-a", code: "A", name: "Target A", merge_group_id: mergeGroupId },
                 available_sessions: [
                   {
                     id: "sit-a",
@@ -203,7 +203,7 @@ describe("absence submission payload builder", () => {
               {
                 level: 2,
                 label: "Priority 2",
-                sit_in_course: { id: "target-b", code: "B", name: "Target B" },
+                sit_in_course: { id: "target-b", code: "B", name: "Target B", merge_group_id: mergeGroupId },
                 available_sessions: [
                   {
                     id: "sit-b",
@@ -220,7 +220,7 @@ describe("absence submission payload builder", () => {
       selectedSessionIds: new Set(["missed-1", "missed-2"]),
       sitInSelections: { "missed-1": "sit-a", "missed-2": "sit-b" },
       reason: "Travel",
-      maxDateRangeDays: 30,
+      maxDateRangeDays: 0,
     });
 
     expect(result).toEqual({
@@ -230,11 +230,23 @@ describe("absence submission payload builder", () => {
           subject_id: "subj-1",
           course_id: "course-1",
           date_from: "2026-06-01",
+          date_to: "2026-06-01",
+          reason: "Travel",
+          sit_in_method: "physical",
+          sit_in_course_id: "target-a",
+          missed_session_ids: ["missed-1"],
+          sit_in_session_ids: ["sit-a"],
+        },
+        {
+          subject_id: "subj-1",
+          course_id: "course-1",
+          date_from: "2026-06-02",
           date_to: "2026-06-02",
           reason: "Travel",
           sit_in_method: "physical",
-          missed_session_ids: ["missed-1", "missed-2"],
-          sit_in_session_ids: ["sit-a", "sit-b"],
+          sit_in_course_id: "target-b",
+          missed_session_ids: ["missed-2"],
+          sit_in_session_ids: ["sit-b"],
         },
       ],
     });

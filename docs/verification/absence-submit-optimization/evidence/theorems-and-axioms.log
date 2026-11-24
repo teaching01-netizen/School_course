@@ -1,0 +1,83 @@
+AbsenceSubmit.naive_read_check_write_counterexample :
+  (∀ (old : AbsenceSubmit.Request), old ∈ [] → AbsenceSubmit.Compatible AbsenceSubmit.witnessA old) ∧
+    (∀ (old : AbsenceSubmit.Request), old ∈ [] → AbsenceSubmit.Compatible AbsenceSubmit.witnessB old) ∧
+      ¬List.Pairwise AbsenceSubmit.Compatible [AbsenceSubmit.witnessA, AbsenceSubmit.witnessB]
+'AbsenceSubmit.naive_read_check_write_counterexample' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.fresh_key_is_not_same_operation :
+  (List.map AbsenceSubmit.Request.key [AbsenceSubmit.witnessA, AbsenceSubmit.witnessB]).Nodup ∧
+    [AbsenceSubmit.witnessA, AbsenceSubmit.witnessB].length = 2
+'AbsenceSubmit.fresh_key_is_not_same_operation' does not depend on any axioms
+AbsenceSubmit.acknowledgement_is_not_commit :
+  ∃ s, AbsenceSubmit.Reachable (fun x => True) s ∧ s.history ≠ [] ∧ s.acknowledged = []
+'AbsenceSubmit.acknowledgement_is_not_commit' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.authorization_is_nonvacuous :
+  AbsenceSubmit.Authorized 1 none (AbsenceSubmit.focus 1 none [AbsenceSubmit.witnessCandidate]) [1] ∧
+    ¬AbsenceSubmit.Authorized 2 none [AbsenceSubmit.witnessCandidate] [1]
+'AbsenceSubmit.authorization_is_nonvacuous' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.expiry_ends_deduplication_guarantee :
+  let once := AbsenceSubmit.acquireExample 1 { retained := [], effects := [] };
+  let retried := AbsenceSubmit.acquireExample 1 (AbsenceSubmit.expireExample 1 once);
+  retried.effects = [1, 1]
+'AbsenceSubmit.expiry_ends_deduplication_guarantee' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.init_invariant (policy : AbsenceSubmit.Request → Prop) (s : AbsenceSubmit.State)
+  (h : AbsenceSubmit.Init s) : AbsenceSubmit.Invariant policy s
+'AbsenceSubmit.init_invariant' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.step_preserves (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  {a : AbsenceSubmit.Action} (hi : AbsenceSubmit.Invariant policy s) (h : AbsenceSubmit.Step policy s a t) :
+  AbsenceSubmit.Invariant policy t
+'AbsenceSubmit.step_preserves' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.all_reachable_safe (policy : AbsenceSubmit.Request → Prop) {s : AbsenceSubmit.State}
+  (h : AbsenceSubmit.Reachable policy s) : AbsenceSubmit.Invariant policy s
+'AbsenceSubmit.all_reachable_safe' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.retained_operations_not_duplicated (policy : AbsenceSubmit.Request → Prop) {s : AbsenceSubmit.State}
+  (h : AbsenceSubmit.Reachable policy s) : (List.map AbsenceSubmit.Request.key s.history).Nodup
+'AbsenceSubmit.retained_operations_not_duplicated' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.active_requests_do_not_conflict (policy : AbsenceSubmit.Request → Prop) {s : AbsenceSubmit.State}
+  (h : AbsenceSubmit.Reachable policy s) : List.Pairwise AbsenceSubmit.Compatible s.active
+'AbsenceSubmit.active_requests_do_not_conflict' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.abort_publishes_no_staged_effect (s : AbsenceSubmit.State) :
+  (AbsenceSubmit.released s).active = s.active ∧ (AbsenceSubmit.released s).history = s.history
+'AbsenceSubmit.abort_publishes_no_staged_effect' does not depend on any axioms
+AbsenceSubmit.replay_does_not_create_effect (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  (key : Nat) (h : AbsenceSubmit.Step policy s (AbsenceSubmit.Action.replay key) t) : t.history = s.history
+'AbsenceSubmit.replay_does_not_create_effect' does not depend on any axioms
+AbsenceSubmit.validate_publishes_no_effect (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  (actor : Nat) (r : AbsenceSubmit.Request)
+  (h : AbsenceSubmit.Step policy s (AbsenceSubmit.Action.validate actor r) t) :
+  t.active = s.active ∧ t.history = s.history
+'AbsenceSubmit.validate_publishes_no_effect' does not depend on any axioms
+AbsenceSubmit.committed_request_was_authorized (policy : AbsenceSubmit.Request → Prop) {s t : AbsenceSubmit.State}
+  (actor : Nat) (r : AbsenceSubmit.Request) (hi : AbsenceSubmit.Invariant policy s)
+  (h : AbsenceSubmit.Step policy s (AbsenceSubmit.Action.commit actor r) t) : policy r
+'AbsenceSubmit.committed_request_was_authorized' does not depend on any axioms
+AbsenceSubmit.a_commit_is_reachable (policy : AbsenceSubmit.Request → Prop) (r : AbsenceSubmit.Request) (actor : Nat)
+  (allowed : policy r) :
+  AbsenceSubmit.Reachable policy { active := [r], history := [r], owner := none, staged := none, acknowledged := [] }
+'AbsenceSubmit.a_commit_is_reachable' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.overlap_symmetric (a b : AbsenceSubmit.Slot) : AbsenceSubmit.Overlap a b ↔ AbsenceSubmit.Overlap b a
+'AbsenceSubmit.overlap_symmetric' depends on axioms: [propext]
+AbsenceSubmit.adjacent_not_overlapping (a b : AbsenceSubmit.Slot) (h : a.finish = b.start) : ¬AbsenceSubmit.Overlap a b
+'AbsenceSubmit.adjacent_not_overlapping' depends on axioms: [propext]
+AbsenceSubmit.focus_preserves_authorization (target : Nat) (group : Option Nat) (rows : List AbsenceSubmit.Candidate)
+  (selected : List Nat) :
+  AbsenceSubmit.Authorized target group (AbsenceSubmit.focus target group rows) selected ↔
+    AbsenceSubmit.Authorized target group rows selected
+'AbsenceSubmit.focus_preserves_authorization' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.focused_rows_are_in_scope (target : Nat) (group : Option Nat) (rows : List AbsenceSubmit.Candidate)
+  (c : AbsenceSubmit.Candidate) (h : c ∈ AbsenceSubmit.focus target group rows) :
+  AbsenceSubmit.inScope target group c = true
+'AbsenceSubmit.focused_rows_are_in_scope' depends on axioms: [propext]
+AbsenceSubmit.selected_query_includes_every_conflict (selected expected : List AbsenceSubmit.Candidate)
+  (c b : AbsenceSubmit.Candidate) (hc : c ∈ selected) (hb : b ∈ expected) (h : AbsenceSubmit.ExpectedConflict c b) :
+  b ∈ AbsenceSubmit.selectedBlockers selected expected
+'AbsenceSubmit.selected_query_includes_every_conflict' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.selected_conflict_is_rejected (selected expected : List AbsenceSubmit.Candidate)
+  (c b : AbsenceSubmit.Candidate) (hc : c ∈ selected) (hb : b ∈ expected) (h : AbsenceSubmit.ExpectedConflict c b) :
+  ¬AbsenceSubmit.PassesExpectedCheck c selected expected
+'AbsenceSubmit.selected_conflict_is_rejected' depends on axioms: [propext, Quot.sound]
+AbsenceSubmit.response_independent_of_private_details (e : AbsenceSubmit.ValidationError) (a b : String) :
+  AbsenceSubmit.publicResponse e a = AbsenceSubmit.publicResponse e b
+'AbsenceSubmit.response_independent_of_private_details' does not depend on any axioms
+AbsenceSubmit.deadline_is_server_timeout (details : String) :
+  (AbsenceSubmit.publicResponse AbsenceSubmit.ValidationError.deadline details).fst = 504
+'AbsenceSubmit.deadline_is_server_timeout' does not depend on any axioms

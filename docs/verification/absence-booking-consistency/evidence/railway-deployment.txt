@@ -1,0 +1,7 @@
+Read-only Railway list_deployments for Course-management / production / School_course.
+Latest SUCCESS returned on 2026-11-24, Bangkok time.
+Deployment ec443e8b-b96c-432a-a57e-eae5e109a37a
+Source e83d8a1a965d3bcd061571dfa2df5d0671e8ca2a
+Created 2026-11-22T08:25:23.400Z
+Region asia-southeast1-eqsg3a
+Replica count and database configuration were not inferred from region metadata.

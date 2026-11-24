@@ -1593,7 +1593,7 @@ func (s *server) handleAbsenceSettingsUpdate(w http.ResponseWriter, r *http.Requ
 	adminID := actorID(user.ID)
 	s.a.WithIdempotentTx(w, r, user.ID, "absence-settings", s.deps.DB, s.deps.Q, func(tx pgx.Tx) (int, any, error) {
 		qtx := s.deps.Q.WithTx(tx)
-		current, err := qtx.AppSettingsGetWithPolicies(r.Context())
+		current, err := qtx.AppSettingsGetWithPoliciesForUpdate(r.Context())
 		if err != nil {
 			status, code, message := s.a.ClassifyDBErr(err)
 			s.a.WriteErr(w, status, code, message)

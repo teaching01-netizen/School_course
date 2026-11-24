@@ -1,0 +1,53 @@
+[
+  {
+    "cwd": "backend",
+    "argv": [
+      "go",
+      "test",
+      "-race",
+      "./internal/httpapi/absenceshttp",
+      "-run",
+      "TestFormalCorrespondence|TestSitInSubmitValidation|TestSatVerbal|TestFullChain|TestPolicyAudit|TestResolveMappedSatVerbal|TestWriteSitInValidationError|TestSubmission_|TestFailure_|TestIdempotency_SameKeyAcrossReplicasOneRow|TestPublicBatchReplaysSameKeyWithoutDuplicatingAbsence|TestBatch_OppositeOrderNoDeadlock|TestMergeMembership_ChangeSerializesWithSubmissionLock",
+      "-count=1",
+      "-v"
+    ],
+    "environment": {
+      "TEST_DATABASE_URL": "postgres://rd-cream@localhost:5432/warwick_absence_formal_20261116?sslmode=disable",
+      "SAT_POLICY_TEST_DATABASE_URL": "postgres://rd-cream@localhost:5432/warwick_absence_formal_20261116?sslmode=disable"
+    },
+    "exit_status": 0,
+    "output": "postgres-race-tests.log"
+  },
+  {
+    "cwd": "backend",
+    "argv": [
+      "go",
+      "test",
+      "./..."
+    ],
+    "exit_status": 0,
+    "output": "all-backend-tests.log"
+  },
+  {
+    "cwd": "backend",
+    "argv": [
+      "go",
+      "vet",
+      "./internal/httpapi/absenceshttp"
+    ],
+    "exit_status": 0,
+    "output": "go-vet.log"
+  },
+  {
+    "cwd": "docs/verification/absence-submit-optimization",
+    "argv": [
+      "lake",
+      "env",
+      "leanchecker",
+      "--help"
+    ],
+    "exit_status": 1,
+    "output": "leanchecker-unavailable.log",
+    "status": "NOT_RUN: optional binary absent"
+  }
+]

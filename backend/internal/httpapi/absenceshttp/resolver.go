@@ -544,7 +544,7 @@ func filterActiveSitInCourses(ctx context.Context, q *sqldb.Queries, pool []sqld
 // Uses the MISSED course's level to determine sit-in behavior, not the student's
 // highest enrolled level. Level 1 absences always yield Zoom.
 func resolveSitInForCourse(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, satVerbalAfterPriority int, studentFacing bool) (*SitInResult, error) {
-	return resolveSitInForCourseWithOptions(ctx, q, wcode, courseID, subjectID, dateFrom, dateTo, instituteTZ, sitInResolveOptions{
+	return resolveSitInForCourseWithOptions(ctx, q, wcode, courseID, subjectID, dateFrom, dateTo.AddDate(0, 0, 1), instituteTZ, sitInResolveOptions{
 		afterPriorityLevel: satVerbalAfterPriority,
 		studentFacing:      studentFacing,
 	})
@@ -560,7 +560,7 @@ type sitInResolveOptions struct {
 	policies           []byte
 }
 
-func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateTo time.Time, instituteTZ string, options sitInResolveOptions) (*SitInResult, error) {
+func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wcode string, courseID, subjectID pgtype.UUID, dateFrom, dateToExclusive time.Time, instituteTZ string, options sitInResolveOptions) (*SitInResult, error) {
 	student, err := q.StudentGetByWCode(ctx, wcode)
 	if err != nil {
 		return nil, fmt.Errorf("student not found: %w", err)
@@ -597,11 +597,13 @@ func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wco
 			break
 		}
 	}
-	settings, err := q.AppSettingsGetWithPolicies(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("policy lookup: %w", err)
+	if options.policies == nil {
+		settings, err := q.AppSettingsGetWithPolicies(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("policy lookup: %w", err)
+		}
+		options.policies = settings.AbsencePolicies
 	}
-	options.policies = settings.AbsencePolicies
 	autoEnabled, err := automaticSitInEnabledFromJSON(options.policies, subjectID, rootCourseGroupID, mergeGroupID)
 	if err != nil {
 		return nil, err
@@ -614,7 +616,7 @@ func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wco
 	if err != nil {
 		return nil, fmt.Errorf("active sit-in sessions lookup: %w", err)
 	}
-	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateTo, instituteTZ, options, blockedSitInSessionIDs); err != nil {
+	if mapped, err := resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, subjectEnrolled, dateFrom, dateToExclusive, instituteTZ, options, blockedSitInSessionIDs); err != nil {
 		return nil, err
 	} else if mapped != nil {
 		if err := options.filterConflicts(ctx, q, student.ID, mapped, instituteTZ); err != nil {
@@ -671,7 +673,7 @@ func resolveSitInForCourseWithOptions(ctx context.Context, q *sqldb.Queries, wco
 		}
 	}
 
-	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
+	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateToExclusive)
 	if err != nil {
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}
@@ -795,7 +797,7 @@ func resolveMappedSatVerbalSitIn(
 	afterPriorityLevel int,
 	studentFacing bool,
 ) (*SitInResult, error) {
-	return resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo, instituteTZ, sitInResolveOptions{afterPriorityLevel: afterPriorityLevel, studentFacing: studentFacing}, nil)
+	return resolveMappedSatVerbalSitInWithBlockedSessions(ctx, q, subjectID, courseID, enrolled, dateFrom, dateTo.AddDate(0, 0, 1), instituteTZ, sitInResolveOptions{afterPriorityLevel: afterPriorityLevel, studentFacing: studentFacing}, nil)
 }
 
 func resolveMappedSatVerbalSitInWithBlockedSessions(
@@ -805,7 +807,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 	courseID pgtype.UUID,
 	enrolled []sqldb.StudentEnrolledCourseV2,
 	dateFrom time.Time,
-	dateTo time.Time,
+	dateToExclusive time.Time,
 	instituteTZ string,
 	options sitInResolveOptions,
 	blockedSitInSessionIDs map[string]struct{},
@@ -843,7 +845,7 @@ func resolveMappedSatVerbalSitInWithBlockedSessions(
 		allCourses = append(allCourses, course)
 	}
 
-	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateTo)
+	missedSessions, err := q.SessionsByCourseInRange(ctx, courseID, dateFrom, dateToExclusive)
 	if err != nil {
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}
@@ -1085,7 +1087,7 @@ func resolveSitIn(ctx context.Context, q *sqldb.Queries, wcode string, subjectID
 	}
 
 	// 7. Get missed sessions (student's course sessions in range)
-	missedSessions, err := q.SessionsByCourseInRange(ctx, main.CourseID, dateFrom, dateTo)
+	missedSessions, err := q.SessionsByCourseInRange(ctx, main.CourseID, dateFrom, dateTo.AddDate(0, 0, 1))
 	if err != nil {
 		return nil, fmt.Errorf("missed sessions lookup: %w", err)
 	}

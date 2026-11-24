@@ -1,0 +1,14 @@
+
+> react-vite-tailwind@0.0.0 test:absence
+> vitest run src/features/absences src/components/absences/__tests__ src/pages/__tests__/AbsenceForm
+
+(node:19477) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v4.1.7 /Users/rd-cream/Downloads/warwick-institute-ux-documentation copy 2
+
+
+ Test Files  31 passed (31)
+      Tests  509 passed (509)
+   Start at  10:23:23
+   Duration  29.27s (transform 5.16s, setup 4.68s, import 14.09s, tests 76.50s, environment 30.48s)

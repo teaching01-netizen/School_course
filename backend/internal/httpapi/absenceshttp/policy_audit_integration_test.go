@@ -217,6 +217,35 @@ func TestPolicyAuditPickerChecksClassesOnMakeUpDate(t *testing.T) {
 	}
 }
 
+func TestPolicyAuditMergedCourseUsesRootPrioritiesUnlessOverridden(t *testing.T) {
+	f := seedPolicyAudit(t)
+	ctx := context.Background()
+	var rule pgtype.UUID
+	if err := f.tx.QueryRow(ctx, `INSERT INTO sit_in_rules(name,type,predicate) VALUES($1,'teacher_case_by_case','{}') RETURNING id`, f.wcode+"-teacher").Scan(&rule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.tx.Exec(ctx, `UPDATE root_course_groups SET sit_in_rule_id=$2 WHERE id=$1`, f.root, rule); err != nil {
+		t.Fatal(err)
+	}
+	lookup := StudentSessionLookup{WCode: f.wcode}
+	now := f.day.Add(-24 * time.Hour)
+	settings := defaultAbsenceSettings()
+	result := f.v2(t, lookup, []byte(`{}`), settings, now)
+	if result == nil || result.SitInMethod != SitInMethodPhysical || len(result.Priorities) != 1 || len(result.Priorities[0].Available) == 0 {
+		t.Fatalf("merged class without an override should offer the root priority, got %+v", result)
+	}
+	if !f.submit(t, f.missedSession, f.adjacent, f.target, f.day) {
+		t.Fatal("submission rejected an eligible root-priority make-up")
+	}
+	if _, err := f.tx.Exec(ctx, `UPDATE course_merge_groups SET sit_in_rule_id=$2 WHERE id=$1`, f.merge, rule); err != nil {
+		t.Fatal(err)
+	}
+	result = f.v2(t, lookup, []byte(`{}`), settings, now)
+	if result == nil || result.SitInMethod != SitInMethodTeacher || len(result.Priorities) != 0 {
+		t.Fatalf("merged class with an override should use its teacher rule, got %+v", result)
+	}
+}
+
 func (f policyAuditFixture) createAuditAbsence(t *testing.T) pgtype.UUID {
 	t.Helper()
 	var id pgtype.UUID

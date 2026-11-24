@@ -456,6 +456,45 @@ func TestStaffCreate_SpecialApprovedAllowsFinalSessionFromUnenrolledCourse(t *te
 	}
 }
 
+func TestStaffCreate_AcceptsSuggestedSessionFromStaffLookup(t *testing.T) {
+	f := seedFinalSessionFixture(t)
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, "UPDATE courses SET student_booking_enabled = false WHERE id = $1", f.targetCourseID); err != nil {
+		t.Fatal(err)
+	}
+	staff := f.staffServer(t)
+	lookup := staffDoRequest(t, staff.URL, http.MethodGet,
+		"/api/v1/absences/sessions-in-range?wcode="+f.wcode+"&date_from="+f.date+"&date_to="+f.date+"&lifetime=true&bypass_timing=true", nil)
+	f.assertDiscovery(t, finalSessionResponseBody(t, lookup, http.StatusOK), false)
+
+	item := f.requestBody()
+	item["sit_in_session_ids"] = []string{f.earlierID}
+	body := map[string]any{"items": []map[string]any{item}}
+	form := staffDoRequest(t, staff.URL, http.MethodPost, "/api/v1/absences/staff-form-batch", body)
+	if rejection := finalSessionResponseBody(t, form, http.StatusBadRequest); !strings.Contains(string(rejection), `"code":"invalid_sessions"`) {
+		t.Fatalf("student-facing staff form returned %s", rejection)
+	}
+
+	item["special_sit_in_session_ids"] = []string{}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, staff.URL+"/api/v1/absences/staff-create", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", uuid.NewString())
+	request.Header.Set("X-Staff-Batch", "true")
+	response, err := staff.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalSessionResponseBody(t, response, http.StatusCreated)
+	f.assertPersisted(t, f.earlierID)
+}
+
 func TestStaffCreate_ExplicitSpecialSitIn(t *testing.T) {
 	databaseURL := requireStaffTestDB(t)
 	migrateStaffUpOnce(t, databaseURL)

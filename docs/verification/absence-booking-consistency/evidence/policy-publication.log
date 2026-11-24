@@ -1,0 +1,7 @@
+=== RUN   TestBookingProbePolicyChangeBeforeCommit
+2026/11/24 10:27:30 goose: no migrations to run. current version: 133
+2026/11/24 10:27:30 INFO sit-in submit policy validation duration_ms=19 selected_sessions=1
+    booking_publication_probe_test.go:129: COUNTEREXAMPLE: policy disable committed before the paused booking COMMIT; booking still returned 201 and its assignment persisted
+--- PASS: TestBookingProbePolicyChangeBeforeCommit (0.19s)
+PASS
+ok  	warwick-institute/internal/httpapi/absenceshttp	0.674s

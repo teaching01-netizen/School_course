@@ -231,7 +231,7 @@ func (s *server) handleStaffCreateAbsence(w http.ResponseWriter, r *http.Request
 		}
 
 		if len(sessionUUIDs) > 0 || len(body.SpecialSitInSessionIDs) > 0 {
-			if err := s.validateStaffSitInSelection(w, r, qtx, row.ID, student.ID, course.CourseID, sitInCourseID, requestedStatus, body, sessionUUIDs); err != nil {
+			if err := s.validateStaffSitInSelection(w, r, qtx, row.ID, student.ID, course.CourseID, sitInCourseID, requestedStatus, body, sessionUUIDs, false); err != nil {
 				return 0, nil, err
 			}
 			sitInInputs := make([]sqldb.SitInSnapshotInput, 0, len(sessionUUIDs))

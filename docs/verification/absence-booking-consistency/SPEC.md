@@ -1,0 +1,15 @@
+# Make-up booking consistency specification
+
+The boundary starts with the ordinary suggested physical make-up options offered to a student or staff member. It ends at validation and publication of the submitted batch and its retained idempotency result. PostgreSQL is authoritative for writes. Actors can look up a choice, change booking facts, submit, retry or lose a response. A lookup describes its own facts and clock. An unchanged, coherent snapshot is required only for the eligibility comparisons below. Cancellation, deadlines, session versions and other validation gates can still prevent a write. Manual Special Sit-ins, notification delivery, live throughput and eventual success are outside this proof. The separate [Special Sit-in verification](../staff-special-sit-in/PROOF_REPORT.md) covers its model.
+
+| ID | Kind | Exact obligation |
+| --- | --- | --- |
+| P1 | Consistency | Given the same finite eligible course pool and unique codes in the declared ordering, take the minimum rank then minimum code. Any permutation of that pool yields the same course. This models the rank-chain tie and the rank-ordered course input. |
+| P2 | Safety / consistency | Student and student-facing staff lookups and submissions may consider only bookable courses. The admin picker and submit may consider hidden courses. Other policy and session gates still apply. |
+| P3 | Consistency | Use an explicit merge-level rule when supplied. Otherwise use nonempty configured root priorities when a root exists, then the effective fallback. |
+| P4 | Consistency | A session start belongs to the inclusive persisted local date range exactly when it is at or after its first local midnight and strictly before the midnight after the last day. The instant elapsed between midnights may vary. |
+| P5 | Safety / consistency | Rows for different resolved targets become separate batch items. Rows with the same source scope, method and resolved target can share an item. A merged-day choice may share the first target alias only for the same source scope, target merge group and canonically encoded set of selected IDs. Each modeled input row reaches its bucket. |
+| P6 | Atomicity / retry safety | Validation requires a nonempty batch and every item to pass. A successful modeled commit publishes the entire staged batch. Abort and lost acknowledgement do not write a partial batch. A retained operation key never has its committed batch replaced. Acknowledgement or replay of a committed response requires a matching fingerprint. |
+| P7 | Ordering / freshness | A choice can become ineligible after lookup. Revalidation against the newer facts can reject it. The model permits a fact change after validation and before commit, so commit-time eligibility requires a separate refinement argument. |
+
+No unconditional promise that an offered option is accepted is specified. Same inputs alone do not imply success across changed facts, permission changes, clock boundaries, overlapping reservations, or transport failures.

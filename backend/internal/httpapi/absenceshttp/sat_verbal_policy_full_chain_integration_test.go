@@ -344,11 +344,72 @@ func equalInts(a, b []int) bool {
 	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
+func TestSatVerbalSubmitUsesInstituteDateForEarlyMissedClass(t *testing.T) {
+	c := seedSatCycle(t)
+	c.applyAll(t)
+	source := c.courses["rb2"]
+	const index = 1
+	start := source.Starts[index].Add(-3 * time.Hour)
+	if _, err := c.pool.Exec(context.Background(), `UPDATE sessions SET start_at = $2, end_at = $3 WHERE id = $1`,
+		source.Sessions[index], start, start.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	source.Starts[index] = start
+	_, token := c.student(t, "rb2")
+	mux := selfServiceMux(t, c.pool)
+	target := c.courses["rb1"]
+	available := c.lookup(t, mux, token, "rb2", index, nil).availableByCourse()[target.ID]
+	if len(available) != 1 || available[0] != target.Sessions[index] {
+		t.Fatalf("lookup offered %v for lesson %d, want %s", available, index+1, target.Sessions[index])
+	}
+	response := c.submit(t, mux, token, "rb2", index, "rb1", available[0])
+	assertFinalSessionResponse(t, response.Code, http.StatusCreated, response.Body.Bytes())
+}
+
 func TestSatVerbalFullChain(t *testing.T) {
 	c := seedSatCycle(t)
 	c.applyAll(t)
 	mux := selfServiceMux(t, c.pool)
 	finalOf := func(key string) string { s := c.courses[key].Sessions; return s[len(s)-1] }
+
+	t.Run("batch_accepts_separate_make_up_targets", func(t *testing.T) {
+		defer configureAbsenceLimitPercentForTest(t, c.q, 100)()
+		_, token := c.student(t, "rb2")
+		source := c.courses["rb2"]
+		var items []map[string]any
+		for _, choice := range []struct {
+			missed int
+			step   int
+			target string
+		}{{1, 0, "rb1"}, {2, 1, "rr5"}} {
+			target := c.courses[choice.target]
+			steps := c.revealAll(t, mux, token, "rb2", choice.missed)
+			if len(steps) <= choice.step {
+				t.Fatalf("missing priority for %s", choice.target)
+			}
+			available := steps[choice.step].availableByCourse()[target.ID]
+			if len(available) == 0 {
+				t.Fatalf("no eligible make-ups for %s", choice.target)
+			}
+			date := source.Starts[choice.missed].In(c.loc).Format("2006-01-02")
+			items = append(items, map[string]any{
+				"subject_id": c.subjectID, "course_id": source.ID,
+				"date_from": date, "date_to": date, "sit_in_method": SitInMethodPhysical,
+				"sit_in_course_id": target.ID, "missed_session_ids": []string{source.Sessions[choice.missed]},
+				"sit_in_session_ids": []string{available[0]},
+			})
+		}
+		response := postSelfService(t, mux, "/api/v1/absences/batch", token, map[string]any{
+			"reason": "Medical appointment", "items": items,
+		})
+		assertFinalSessionResponse(t, response.Code, http.StatusCreated, response.Body.Bytes())
+		var result struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || len(result.Items) != 2 {
+			t.Fatalf("expected both items to be created: %s", response.Body.String())
+		}
+	})
 
 	t.Run("beginner_sec2_progressive_reveal_and_final_class", func(t *testing.T) {
 		_, token := c.student(t, "rb2")

@@ -1,0 +1,11 @@
+{
+  "top_level_passed": 39,
+  "top_level_failed": 0,
+  "go_race_report": false,
+  "differential_result": [
+    "formal_correspondence_test.go:225: 128 coherent catalogs; 28450 selections compared; 2526 accepted, 25924 rejected"
+  ],
+  "replica_result": [
+    "formal_correspondence_test.go:127: lost response body followed by 16 concurrent replays across two HTTP handlers and independent pools; one absence, sit-in, and missed-session row"
+  ]
+}

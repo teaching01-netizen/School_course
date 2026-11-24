@@ -46,12 +46,21 @@ type MergeableAbsenceItem = Pick<
 > & { special_sit_in_session_ids?: string[] };
 
 export function mergeAbsenceBatchItemsByScope<T extends MergeableAbsenceItem>(
-  entries: Array<{ scopeKey: string; item: T }>,
+  entries: Array<{ scopeKey: string; targetMergeGroupId?: string; item: T }>,
 ): T[] {
   const merged = new Map<string, T>();
+  const sharedTargetCourses = new Map<string, string>();
   for (const entry of entries) {
     const item = entry.item;
-    const key = `${entry.scopeKey}|${item.sit_in_course_id ?? ""}|${item.sit_in_method ?? ""}`;
+    let courseId = item.sit_in_course_id;
+    if (entry.targetMergeGroupId && courseId && item.sit_in_session_ids.length > 0) {
+      // A merged-day selection can be attached to more than one source class.
+      const sessions = [...item.sit_in_session_ids].sort().join(",");
+      const selection = `${entry.scopeKey}|${entry.targetMergeGroupId}|${sessions}`;
+      courseId = sharedTargetCourses.get(selection) ?? courseId;
+      sharedTargetCourses.set(selection, courseId);
+    }
+    const key = `${entry.scopeKey}|${courseId ?? ""}|${item.sit_in_method ?? ""}`;
     const current = merged.get(key);
     if (!current) {
       merged.set(key, {
@@ -320,65 +329,33 @@ export function selectedSitInCourseIDForGroup(
   return null;
 }
 
-export function selectedSitInCourseIDForScope(
-  groups: SubjectSessions[],
-  selectedMissedSessionIds: string[],
+export function suggestedSitInForSubmission(
+  group: SubjectSessions,
+  missedSessionId: string,
   sitInSelections: Record<string, string>,
   priorityLevels?: Record<string, number>,
   priorityHistory?: Record<string, Record<number, SubjectSessions>>,
-): string | null {
-  const primaryGroup = groups[0];
-  if (!primaryGroup) return null;
-
-  if (groups.length === 1) {
-    return selectedSitInCourseIDForGroup(
-      primaryGroup,
-      selectedMissedSessionIds,
-      sitInSelections,
-      priorityLevels,
-      priorityHistory,
-    );
-  }
-
-  for (const missedSessionID of selectedMissedSessionIds) {
-    const group =
-      groups.find((candidate) =>
-        candidate.sessions.some((session) => session.id === missedSessionID),
-      ) ?? primaryGroup;
-    let effectiveGroup = group;
-    const level = priorityLevels?.[missedSessionID];
-    if (level !== undefined) {
-      effectiveGroup = priorityHistory?.[missedSessionID]?.[level] ?? group;
-    }
-    const sitIn = sitInForMissedSession(effectiveGroup, missedSessionID);
-    if (sitIn?.sit_in_method !== "physical") continue;
-    const selectedSessionIDs = splitMergedSessionValue(
-      sitInSelections[missedSessionID],
-    );
-    const priorities = (sitIn.priorities ?? []).filter(
-      (priority) => level === undefined || priority.level === level,
-    );
-    for (const priority of priorities) {
-      if (
-        selectedSessionIDs.some((sessionID) =>
-          (priority.available_sessions ?? []).some(
-            (session) => session.id === sessionID,
-          ),
-        )
-      ) {
-        const courseID = priority.sit_in_course?.id?.trim();
-        if (courseID) return courseID;
-      }
-    }
-  }
-
-  return selectedSitInCourseIDForGroup(
-    primaryGroup,
-    selectedMissedSessionIds,
+) {
+  const level = priorityLevels?.[missedSessionId];
+  const effectiveGroup = level === undefined
+    ? group
+    : priorityHistory?.[missedSessionId]?.[level] ?? group;
+  const method = sitInForMissedSession(effectiveGroup, missedSessionId)?.sit_in_method;
+  const sessionIds = splitMergedSessionValue(sitInSelections[missedSessionId]);
+  const courseId = method === "none" ? undefined : selectedSitInCourseIDForGroup(
+    effectiveGroup,
+    [missedSessionId],
     sitInSelections,
-    priorityLevels,
-    priorityHistory,
-  );
+  ) ?? undefined;
+  const targetMergeGroupId = sessionIds
+    .map((sessionId) => findSitInSessionMergeGroupIDInGroups([effectiveGroup], sessionId))
+    .find((mergeGroupId) => mergeGroupId !== null);
+  return {
+    method: method === "physical" || method === "zoom" ? method : undefined,
+    sessionIds,
+    courseId,
+    targetMergeGroupId,
+  };
 }
 
 function collectAttendingSessions(
@@ -401,7 +378,7 @@ export function buildSubmissionPayloads(
   input: BuildSubmissionPayloadsInput,
 ): BuildSubmissionPayloadsResult {
   if (!input.lookupWcode) return { ok: true, payloads: [] };
-  const payloadEntries: Array<{ scopeKey: string; item: AbsenceBatchCreateItem }> = [];
+  const payloadEntries: Array<{ scopeKey: string; targetMergeGroupId?: string; item: AbsenceBatchCreateItem }> = [];
   const attendingByDate = collectAttendingSessions(input.sessions);
   const selectedSitInIntervals: Array<{
     scopeKey: string;
@@ -417,17 +394,6 @@ export function buildSubmissionPayloads(
       input.selectedSessionIds,
     );
     if (selectedGroupSessions.length === 0) continue;
-    const selectedDates = [
-      ...new Set(selectedGroupSessions.map((session) => session.date)),
-    ].sort();
-    const dateFrom = selectedDates[0];
-    const dateTo = selectedDates[selectedDates.length - 1];
-    if (daysBetween(dateFrom, dateTo) > input.maxDateRangeDays) {
-      return {
-        ok: false,
-        error: `${group.subject_name || group.course_name} spans more than ${input.maxDateRangeDays} days. Split it into separate submissions.`,
-      };
-    }
     const selectedSessIds = selectedGroupSessions.map((session) => session.id);
     const scopeGroups = input.sessions.filter(
       (candidate) => absenceScopeKey(candidate) === absenceScopeKey(group),
@@ -446,7 +412,6 @@ export function buildSubmissionPayloads(
         Object.values(input.sitInPriorityHistory?.[missedSessionID] ?? {}),
       ),
     ];
-    const scopePrimaryGroup = scopeGroups[0] ?? group;
     const sitInSessionIds = uniqueValues(
       selectedSessIds.flatMap((id) =>
         splitMergedSessionValue(input.sitInSelections[id]),
@@ -492,29 +457,42 @@ export function buildSubmissionPayloads(
       }
       selectedSitInIntervals.push({ scopeKey, id: sid, mergeGroupID, time });
     }
-    const sitInMethod = group.sit_in?.sit_in_method;
-    const payload: AbsenceBatchCreateItem = {
-      subject_id: group.subject_id,
-      course_id: group.course_id,
-      date_from: dateFrom,
-      date_to: dateTo,
-      reason: input.reason.trim() || undefined,
-      missed_session_ids: selectedSessIds,
-      sit_in_session_ids: sitInSessionIds,
-    };
-    if (sitInMethod === "physical" || sitInMethod === "zoom")
-      payload.sit_in_method = sitInMethod;
-    const sitInCourseID = selectedSitInCourseIDForGroup(
-      scopePrimaryGroup,
-      selectedScopeSessionIds,
-      input.sitInSelections,
-      input.sitInPriorityLevels,
-      input.sitInPriorityHistory,
-    );
-    if (sitInCourseID) payload.sit_in_course_id = sitInCourseID;
-    payloadEntries.push({ scopeKey: absenceScopeKey(group), item: payload });
+    for (const session of selectedGroupSessions) {
+      const assignment = suggestedSitInForSubmission(
+        group,
+        session.id,
+        input.sitInSelections,
+        input.sitInPriorityLevels,
+        input.sitInPriorityHistory,
+      );
+      payloadEntries.push({
+        scopeKey: absenceScopeKey(group),
+        targetMergeGroupId: assignment.targetMergeGroupId,
+        item: {
+          subject_id: group.subject_id,
+          course_id: group.course_id,
+          date_from: session.date,
+          date_to: session.date,
+          reason: input.reason.trim() || undefined,
+          sit_in_method: assignment.method,
+          sit_in_course_id: assignment.courseId,
+          missed_session_ids: [session.id],
+          sit_in_session_ids: assignment.sessionIds,
+        },
+      });
+    }
   }
   const payloads = mergeAbsenceBatchItemsByScope(payloadEntries);
+  const outOfRange = payloads.find((item) =>
+    daysBetween(item.date_from, item.date_to) > input.maxDateRangeDays,
+  );
+  if (outOfRange) {
+    const group = input.sessions.find((sessionGroup) => sessionGroup.course_id === outOfRange.course_id);
+    return {
+      ok: false,
+      error: `${group?.subject_name || group?.course_name || "The selected class"} spans more than ${input.maxDateRangeDays} days. Split it into separate submissions.`,
+    };
+  }
   const duplicateSitInIDs = duplicateSitInSessionIds(payloads);
   if (duplicateSitInIDs.length > 0) {
     return {

@@ -607,7 +607,7 @@ func (s *server) createAbsenceRecordTx(
 			s.a.WriteErr(w, http.StatusBadRequest, "invalid_sessions", "Sit-in sessions must be active and must not overlap the missed class")
 			return createdAbsenceRecord{}, false
 		}
-		if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs); err != nil {
+		if err := s.validateSitInCandidates(r.Context(), qtx, row.ID, sessionUUIDs, true); err != nil {
 			s.writeSitInValidationError(w, err)
 			return createdAbsenceRecord{}, false
 		}

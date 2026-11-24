@@ -1,0 +1,25 @@
+# Requirement → theorem → implementation
+
+All implementation correspondences below are refinement obligations supported by review/tests, not a mechanically verified translation of Go or SQL.
+
+| ID | Exact model theorem | Observable implementation path | Dependency | Test oracle | Correspondence |
+| --- | --- | --- | --- | --- | --- |
+| AUTH | `focus_preserves_authorization`, `focused_rows_are_in_scope` | `satVerbalResolvePriorities` → `satVerbalSelectedTarget`; `resolvedSitInSelectionAllowsCourse` flattens result collections | A3/A4, fixed coherent snapshot; target group resolved consistently | Seeded `TestFormalCorrespondenceFocusedResolverMatchesFullPolicy`: compare full and focused real resolver decisions for single and paired selected IDs; existing lower-priority and merged-peer DB regressions | REVIEWED_WITH_TESTS; the pre-filter offered-ID state machine and all SQL facts remain UNVERIFIED mechanically |
+| CONFLICT | `selected_query_includes_every_conflict`, `selected_conflict_is_rejected`, `adjacent_not_overlapping` | `sitInResolveOptions.filterConflicts` → `ExpectedSessionConflictsForStudentCandidates` → `filterSitInResultByExpectedSessions` | A5/A7; expected set must be complete; SQL excludes equal session IDs | `TestSitInSubmitValidationKeepsExpectedClassAndPolicyChecks`, policy audit and all-result-shape filters | REVIEWED_WITH_TESTS |
+| RETRY | `retained_operations_not_duplicated`, `replay_does_not_create_effect` | `WithIdempotentTx` uses `idempotency.Acquire`/`Complete` and the same pgx.Tx as absence/assignment writes | A1/A2/A6; retention/fingerprint envelope | Same-key replica race, public-batch replay; injected lost body followed by concurrent physical-submit replay through two handlers and independent pools; one persisted effect | REVIEWED_WITH_TESTS; no all-time exactly-once claim |
+| ATOMIC | `validate_publishes_no_effect`, `abort_publishes_no_staged_effect`, `acknowledgement_is_not_commit` | Domain inserts, snapshots, audit, response record, then `tx.Commit`; deferred background-context rollback on failure | A1/A10; commit is the named publication point under DB assumptions | `TestFailure_BetweenWrites_NoPartials`, `TestFailure_BeforeCommit_NoPartials`, `TestFailure_IdempotencyAcquireRollback_NoKeyHeld`; response writer returns `io.ErrClosedPipe` after commit | REVIEWED_WITH_TESTS for local profile, not process/failover validation |
+| SERIAL | `step_preserves`, `all_reachable_safe`, `active_requests_do_not_conflict`, `committed_request_was_authorized` | Student row lock precedes availability checks; post-fence recheck and snapshot insert precede commit | A2/A8/A9/A11; arbitrary actors but one student's common lock; immutable interval facts in model | Four `TestSubmission_*` barrier schedules; cross-replica idempotency; cancellations retain history but remove active requests in model | REVIEWED_WITH_TESTS for cooperating submit protocol; changing schedules/config and all background writers UNVERIFIED |
+| ERROR | `response_independent_of_private_details`, `deadline_is_server_timeout` | `writeSitInValidationError` at all four validation callers | Error classification must match the wrapped error; no malformed mixed classification claim | `TestWriteSitInValidationError`, injected wrapped timeout/internal DB failures in `TestSitInSubmitValidationErrorsAreSafe` | REVIEWED_WITH_TESTS |
+
+## Operational correspondence
+
+| Lean action/state | Code/SQL interpretation | Remaining gap |
+| --- | --- | --- |
+| `acquire actor` / `owner` | `students FOR UPDATE` through `StudentsLockOrdered`, held by the transaction | Real lock-order/deadlock behavior is tested, not Lean-verified; a node's process identity is not the operation key |
+| `validate actor request` / `staged` | Fresh policy and overlap checks against transaction-visible facts; uncommitted SQL work is staged | The model combines several real reads under a certificate; multi-statement READ COMMITTED snapshot coherence is an explicit assumption |
+| `commit` | One PostgreSQL transaction publishes domain rows plus stored idempotency response | No verified PostgreSQL semantics or formal Go refinement; callbacks after commit are outside this transition |
+| `abort` | Rollback after deadline, client cancellation, deadlock, crash or query failure | Post-commit network failure can leave a successful commit; the model intentionally permits no ACK |
+| `cancel` | Removing active sit-in rows while retaining the committed operation history | The abstract protocol uses the student lock; the status route's concrete cancellation uses absence/version/snapshot row locks. This is a different refinement obligation, not proof of whole-API linearizability |
+| `replay`, `ack`, `waitOrLoseAck` | Stored-response replay, HTTP write, network delay/body write failure | Notifications lack a proven durable outbox; liveness/notification exactly-once are excluded |
+
+The new Lean package uses no old legacy-sync proof imports. That earlier report is not evidence for this implementation revision.

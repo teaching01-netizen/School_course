@@ -414,16 +414,16 @@ func (q *Queries) ActiveSitInSessionConflictsForStudent(ctx context.Context, stu
 	return out, rows.Err()
 }
 
-func (q *Queries) SessionsByCourseInRange(ctx context.Context, courseID pgtype.UUID, dateFrom time.Time, dateTo time.Time) ([]SessionInRange, error) {
+func (q *Queries) SessionsByCourseInRange(ctx context.Context, courseID pgtype.UUID, from, toExclusive time.Time) ([]SessionInRange, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT id, course_id, room_id, start_at, end_at
 		FROM sessions
 		WHERE course_id = $1
 		  AND deleted_at IS NULL
 		  AND start_at >= $2::timestamptz
-		  AND start_at < ($3::timestamptz + interval '1 day')
+		  AND start_at < $3::timestamptz
 		ORDER BY start_at ASC
-	`, courseID, dateFrom, dateTo)
+	`, courseID, from, toExclusive)
 	if err != nil {
 		return nil, err
 	}
@@ -770,7 +770,7 @@ func (q *Queries) StudentEnrolledCoursesBySubjectV2(ctx context.Context, student
 		JOIN courses c ON c.id = cs.course_id
 		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE cs.student_id = $1 AND c.subject_id = $2 AND cs.status = 'enrolled'
-		ORDER BY cfg.level ASC NULLS LAST
+		ORDER BY cfg.level ASC NULLS LAST, c.code COLLATE "C" ASC
 	`, studentID, subjectID)
 	if err != nil {
 		return nil, err
@@ -801,7 +801,7 @@ func (q *Queries) StudentEnrolledCoursesByRootCourseGroup(ctx context.Context, s
 		WHERE cs.student_id = $1
 		  AND cfg.root_course_group_id = $2
 		  AND cs.status = 'enrolled'
-		ORDER BY cfg.level ASC NULLS LAST
+		ORDER BY cfg.level ASC NULLS LAST, c.code COLLATE "C" ASC
 	`, studentID, rootCourseGroupID)
 	if err != nil {
 		return nil, err
@@ -876,7 +876,7 @@ func (q *Queries) CoursesByRootCourseGroup(ctx context.Context, rootCourseGroupI
 		JOIN course_rule_configs cfg ON cfg.course_id = c.id
 		WHERE cfg.root_course_group_id = $1
 		  AND cfg.level IS NOT NULL
-		ORDER BY cfg.level ASC
+		ORDER BY cfg.level ASC, c.code COLLATE "C" ASC
 	`, rootCourseGroupID)
 	if err != nil {
 		return nil, err

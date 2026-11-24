@@ -1,0 +1,293 @@
+=== RUN   TestFormalCorrespondenceLostAckAndConcurrentPhysicalSubmitReplay
+2026/11/24 10:23:45 OK   00001_init.sql (147.04ms)
+2026/11/24 10:23:45 OK   00002_core_tables.sql (6.57ms)
+2026/11/24 10:23:45 OK   00003_scheduling.sql (17.9ms)
+2026/11/24 10:23:45 OK   00004_triggers.sql (11.96ms)
+2026/11/24 10:23:45 OK   00005_series_weekdays.sql (2.64ms)
+2026/11/24 10:23:45 OK   00006_room_nullable_version.sql (2.03ms)
+2026/11/24 10:23:45 OK   00007_subjects_and_course_fields.sql (7.99ms)
+2026/11/24 10:23:45 OK   00008_course_students_incremental_busy.sql (1.27ms)
+2026/11/24 10:23:45 OK   00009_idempotency_keys.sql (3.06ms)
+2026/11/24 10:23:45 OK   00010_idempotency_keys_fix.sql (1.85ms)
+2026/11/24 10:23:45 OK   00011_crm_import.sql (3.62ms)
+2026/11/24 10:23:45 OK   00012_crm_hardened_v2.sql (17.36ms)
+2026/11/24 10:23:45 OK   00013_course_students_draft_status.sql (1.36ms)
+2026/11/24 10:23:46 OK   00014_student_absences.sql (3.5ms)
+2026/11/24 10:23:46 OK   00015_course_levels.sql (911.08µs)
+2026/11/24 10:23:46 OK   00016_absence_extensions.sql (2.6ms)
+2026/11/24 10:23:46 OK   00017_courses_cycle_level.sql (1.53ms)
+2026/11/24 10:23:46 EMPTY 00018_absence_policies_simplify.sql (181.54µs)
+2026/11/24 10:23:46 OK   00019_courses_root_course.sql (1.57ms)
+2026/11/24 10:23:46 OK   00020_drop_root_course_group_subject_id.sql (240.33µs)
+2026/11/24 10:23:46 OK   00021_absence_management.sql (7.23ms)
+2026/11/24 10:23:46 OK   00022_subject_active_courses.sql (2.29ms)
+2026/11/24 10:23:46 OK   00023_sit_in_rules.sql (3.35ms)
+2026/11/24 10:23:46 OK   00024_backfill_sit_in_rules.sql (480.71µs)
+2026/11/24 10:23:46 OK   00025_sms_otp_parent_phone.sql (6.64ms)
+2026/11/24 10:23:46 OK   00026_cleanup_stale_verification_sessions.sql (280.46µs)
+2026/11/24 10:23:46 OK   00027_otp_lockout_locked_until_nullable.sql (280.46µs)
+2026/11/24 10:23:46 OK   00028_hard_delete_sessions.sql (2.17ms)
+2026/11/24 10:23:46 OK   00029_absence_missed_sessions.sql (1.86ms)
+2026/11/24 10:23:46 OK   00030_students_student_phone.sql (632.5µs)
+2026/11/24 10:23:46 OK   00031_absence_audit_cascade_delete.sql (293.38µs)
+2026/11/24 10:23:46 OK   00032_hard_delete_courses_subjects_rooms.sql (6.96ms)
+2026/11/24 10:23:46 OK   00033_legacy_course_link.sql (490.33µs)
+2026/11/24 10:23:46 OK   00034_backfill_student_phones.sql (637.83µs)
+2026/11/24 10:23:46 OK   00035_sit_in_priorities.sql (2.5ms)
+2026/11/24 10:23:46 OK   00036_add_student_email_nickname.sql (316.29µs)
+2026/11/24 10:23:46 OK   00037_backfill_absence_student_info.sql (430.08µs)
+2026/11/24 10:23:46 OK   00038_sat_verbal_policy_mappings.sql (3.32ms)
+2026/11/24 10:23:46 OK   00039_fix_sat_verbal_policy_mappings_course_id.sql (19.06ms)
+2026/11/24 10:23:46 OK   00040_repair_sat_verbal_policy_mappings_schema.sql (11.72ms)
+2026/11/24 10:23:46 OK   00041_relax_sat_verbal_policy_mapping_legacy_columns.sql (7.65ms)
+2026/11/24 10:23:46 OK   00042_relax_sat_verbal_policy_legacy_policy_column.sql (1.46ms)
+2026/11/24 10:23:46 OK   00043_sit_in_email_reminders.sql (1.55ms)
+2026/11/24 10:23:46 OK   00044_email_workflows.sql (4.68ms)
+2026/11/24 10:23:46 OK   00045_email_templates_built_in.sql (636.88µs)
+2026/11/24 10:23:46 OK   00046_email_templates_update_seed_body.sql (361.13µs)
+2026/11/24 10:23:46 OK   00047_email_delivery_claims.sql (1.37ms)
+2026/11/24 10:23:46 OK   00048_auth_sessions_revoked_at_index.sql (492.08µs)
+2026/11/24 10:23:46 OK   00049_cross_study.sql (5.27ms)
+2026/11/24 10:23:46 OK   00050_cross_study_assignment_ownership.sql (399.33µs)
+2026/11/24 10:23:46 OK   00051_cross_study_roster_ownership.sql (304.71µs)
+2026/11/24 10:23:46 OK   00052_cross_study_two_destination_ownership.sql (516.21µs)
+2026/11/24 10:23:46 OK   00053_prevent_blank_email_template_subjects.sql (2.24ms)
+2026/11/24 10:23:46 OK   00054_email_delivery_status.sql (2.21ms)
+2026/11/24 10:23:46 OK   00055_cross_study_destination_only_review.sql (489.04µs)
+2026/11/24 10:23:46 OK   00056_cross_study_weekday_scope.sql (1.25ms)
+2026/11/24 10:23:46 EMPTY 00057_tombstone_gap_placeholder.sql (180.42µs)
+2026/11/24 10:23:46 EMPTY 00058_tombstone_gap_placeholder.sql (188.67µs)
+2026/11/24 10:23:46 EMPTY 00059_tombstone_gap_placeholder.sql (145.54µs)
+2026/11/24 10:23:46 EMPTY 00060_tombstone_gap_placeholder.sql (133.21µs)
+2026/11/24 10:23:46 OK   00061_cross_study_always_enroll.sql (1.16ms)
+2026/11/24 10:23:46 OK   00062_add_course_cohorts.sql (1.95ms)
+2026/11/24 10:23:46 OK   00063_add_course_teachers.sql (1.3ms)
+2026/11/24 10:23:46 OK   00064_student_email_dual_source.sql (965.17µs)
+2026/11/24 10:23:46 OK   00065_durable_otp_sms_delivery.sql (4.12ms)
+2026/11/24 10:23:46 OK   00066_wcode_case_insensitive_uniqueness.sql (2.41ms)
+2026/11/24 10:23:46 OK   00067_staff_create_absence_audit_action.sql (1.21ms)
+2026/11/24 10:23:46 OK   00068_special_approved_absence_status.sql (608.67µs)
+2026/11/24 10:23:46 OK   00069_students_school.sql (235.88µs)
+2026/11/24 10:23:46 OK   00070_availability_union_policy.sql (341.79µs)
+2026/11/24 10:23:46 OK   00071_schedule_stabilization_indexes.sql (3.45ms)
+2026/11/24 10:23:46 OK   00072_normalize_cross_study_wcodes.sql (3.56ms)
+2026/11/24 10:23:46 OK   00073_session_change_impact_workflow.sql (15.5ms)
+2026/11/24 10:23:46 OK   00074_schedule_impact_operations_queue.sql (2.93ms)
+2026/11/24 10:23:46 OK   00075_session_change_impact_p0_hardening.sql (5.58ms)
+2026/11/24 10:23:46 OK   00076_absence_snapshot_columns.sql (3.52ms)
+2026/11/24 10:23:46 OK   00077_impact_run_processing_state.sql (555.96µs)
+2026/11/24 10:23:46 OK   00078_snapshot_enforcement.sql (2.03ms)
+2026/11/24 10:23:46 OK   00079_course_teacher_integrity.sql (1.33ms)
+2026/11/24 10:23:46 OK   00080_legacy_sync_infrastructure.sql (13.3ms)
+2026/11/24 10:23:46 OK   00081_legacy_sync_jobs.sql (3.73ms)
+2026/11/24 10:23:46 OK   00082_legacy_room_identity.sql (469.33µs)
+2026/11/24 10:23:46 OK   00083_legacy_outbox_claims.sql (1.41ms)
+2026/11/24 10:23:46 OK   00084_student_self_service_sessions.sql (4.76ms)
+2026/11/24 10:23:46 OK   00085_auth_session_token_hash.sql (1.93ms)
+2026/11/24 10:23:46 OK   00086_cleanup_student_self_service_rows.sql (1.51ms)
+2026/11/24 10:23:46 OK   00087_session_delete_impact_skip_removed_absences.sql (436.83µs)
+2026/11/24 10:23:46 OK   00088_assignment_events_no_session_fk.sql (627.21µs)
+2026/11/24 10:23:46 OK   00089_course_type_general.sql (752.38µs)
+2026/11/24 10:23:46 OK   00090_users_full_name.sql (396.38µs)
+2026/11/24 10:23:46 OK   00091_legacy_course_link_unique.sql (1.33ms)
+2026/11/24 10:23:46 OK   00092_session_soft_delete_impact.sql (689.5µs)
+2026/11/24 10:23:46 OK   00093_session_restore_supersedes_soft_delete_impact.sql (1.33ms)
+2026/11/24 10:23:46 OK   00094_legacy_student_import.sql (350.33µs)
+2026/11/24 10:23:46 OK   00095_search_indexes.sql (21.83ms)
+2026/11/24 10:23:46 OK   00096_session_cancel_refresh_busy_ranges.sql (444.96µs)
+2026/11/24 10:23:46 OK   00097_students_level_year.sql (304.33µs)
+2026/11/24 10:23:46 OK   00098_legacy_sync_run_progress.sql (1.83ms)
+2026/11/24 10:23:46 OK   00099_legacy_sync_monitor_opt.sql (3.49ms)
+2026/11/24 10:23:46 OK   00100_admin_pagination_indexes.sql (1.14ms)
+2026/11/24 10:23:46 OK   00101_course_expiry_and_cycle_config.sql (1.54ms)
+2026/11/24 10:23:46 OK   00102_course_expiry_end_index.sql (739.25µs)
+2026/11/24 10:23:46 OK   00103_legacy_conflict_materialization.sql (2.14ms)
+2026/11/24 10:23:46 OK   00104_courses_overview_indexes.sql (2.41ms)
+2026/11/24 10:23:46 OK   00105_course_merge_groups.sql (3ms)
+2026/11/24 10:23:46 OK   00106_absence_merge_group_scope.sql (774.17µs)
+2026/11/24 10:23:46 OK   00107_course_merge_group_configuration.sql (1.29ms)
+2026/11/24 10:23:46 OK   00108_course_absence_form_visible.sql (419.79µs)
+2026/11/24 10:23:46 OK   00109_sat_verbal_policy_merge_group_target.sql (2.14ms)
+2026/11/24 10:23:46 OK   00110_subject_active_courses_multi.sql (1.09ms)
+2026/11/24 10:23:46 OK   00111_enable_student_self_service_course_visibility.sql (608.92µs)
+2026/11/24 10:23:46 OK   00112_schedule_conflict_policy.sql (4.27ms)
+2026/11/24 10:23:46 OK   00113_restore_availability_union_with_policy.sql (434.67µs)
+2026/11/24 10:23:46 OK   00114_incremental_busy_ranges_preserve_conflict_override.sql (380.63µs)
+2026/11/24 10:23:46 OK   00115_sessions_in_range_lookup_indexes.sql (780.58µs)
+2026/11/24 10:23:46 OK   00116_success_sms_pair_template.sql (578.92µs)
+2026/11/24 10:23:46 OK   00117_special_approved_sms_wording.sql (244.88µs)
+2026/11/24 10:23:46 OK   00118_cross_study_merge_group_destinations.sql (661.67µs)
+2026/11/24 10:23:46 OK   00119_schedule_conflicts_overview_indexes.sql (4.58ms)
+2026/11/24 10:23:46 OK   00120_effective_student_session_scope.sql (5.19ms)
+2026/11/24 10:23:46 OK   00121_cross_study_exact_destination_scope.sql (1.27ms)
+2026/11/24 10:23:46 OK   00122_wcode_lookup_indexes.sql (1.69ms)
+2026/11/24 10:23:46 OK   00123_cross_study_institute_tz.sql (868.38µs)
+2026/11/24 10:23:46 OK   00124_schedule_impact_time_changes_only.sql (4.89ms)
+2026/11/24 10:23:46 OK   00125_schedule_impact_retire_version_only_noise.sql (377.71µs)
+2026/11/24 10:23:46 OK   00126_absence_reason_updated_audit.sql (2.16ms)
+2026/11/24 10:23:46 OK   00127_schedule_impact_retire_metadata_only.sql (692.13µs)
+2026/11/24 10:23:46 OK   00128_course_continuation_links.sql (3.92ms)
+2026/11/24 10:23:46 OK   00129_course_link_dismissals.sql (1.34ms)
+2026/11/24 10:23:46 OK   00130_legacy_sync_observation_generations.sql (1.8ms)
+2026/11/24 10:23:46 OK   00131_session_delete_legacy_schedule_refs.sql (1.05ms)
+2026/11/24 10:23:46 OK   00132_course_student_booking.sql (4.08ms)
+2026/11/24 10:23:46 OK   00133_merged_course_student_booking.sql (2.52ms)
+2026/11/24 10:23:46 goose: successfully migrated database to version: 133
+2026/11/24 10:23:46 INFO sit-in submit policy validation duration_ms=7 selected_sessions=1
+    formal_correspondence_test.go:127: lost response body followed by 16 concurrent replays across two HTTP handlers and independent pools; one absence, sit-in, and missed-session row
+--- PASS: TestFormalCorrespondenceLostAckAndConcurrentPhysicalSubmitReplay (0.74s)
+=== RUN   TestFormalCorrespondenceFocusedResolverMatchesFullPolicy
+    formal_correspondence_test.go:225: 128 coherent catalogs; 28450 selections compared; 2526 accepted, 25924 rejected
+--- PASS: TestFormalCorrespondenceFocusedResolverMatchesFullPolicy (0.57s)
+=== RUN   TestPolicyAuditMergedCourseUsesRootPrioritiesUnlessOverridden
+2026/11/24 10:23:47 goose: no migrations to run. current version: 133
+--- PASS: TestPolicyAuditMergedCourseUsesRootPrioritiesUnlessOverridden (0.11s)
+=== RUN   TestSatVerbalSubmitUsesInstituteDateForEarlyMissedClass
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3839 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=28 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sit-in submit policy validation duration_ms=10 selected_sessions=1
+--- PASS: TestSatVerbalSubmitUsesInstituteDateForEarlyMissedClass (0.16s)
+=== RUN   TestSatVerbalFullChain
+=== RUN   TestSatVerbalFullChain/batch_accepts_separate_make_up_targets
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3839 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=28 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6965 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=24 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6915 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=29 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3839 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6965 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=37 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6915 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=26 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sit-in submit policy validation duration_ms=10 selected_sessions=1
+2026/11/24 10:23:47 INFO sit-in submit policy validation duration_ms=9 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/beginner_sec2_progressive_reveal_and_final_class
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3839 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6965 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=27 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6915 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/beginner_sec3_targets_sec1_same_lesson
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3839 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=23 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/missed_final_class_has_no_makeup
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=0 payload_bytes=590 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=23 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=0 payload_bytes=578 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=23 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=0 payload_bytes=591 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=22 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=0 payload_bytes=569 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=22 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=0 payload_bytes=576 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:47 INFO sit-in submit policy validation duration_ms=7 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level/P1_Section_1_same_lesson
+2026/11/24 10:23:47 INFO sit-in submit policy validation duration_ms=10 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level/P2_Rank_5
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=10 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level/P3_Rank_4
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=9 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level/P1_Section_1_wrong_lesson
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=9 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level/P2_Rank_5_final_class
+=== RUN   TestSatVerbalFullChain/submit_each_priority_level/off-chain_Writing_Rank_5
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=8 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/rank3_sec2_skips_rank2
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3828 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=12672 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=24 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/rank3_sec1_priorities
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=3828 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6706 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=28 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=12672 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/rank2_rank3_excludes_own_class_clash
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=19390 settings_ms=0 facts_ms=3 domain_ms=0 serialize_ms=0 total_ms=26 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/ultimate_intensive_offers_only_reading_mastery
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6849 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=24 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=7 selected_sessions=1
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=9 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/mastery_student_rank3_goes_to_rank2
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6745 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=26 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=19467 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=26 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sit-in submit policy validation duration_ms=8 selected_sessions=1
+=== RUN   TestSatVerbalFullChain/mastery_student_rank2_goes_to_rank3
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=19559 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=25 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/realtime_practice_follows_main_rank
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6683 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=26 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6683 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=26 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6683 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=30 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/brush_up_opposite_rank_same_subject
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6960 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=28 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6960 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=36 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6960 settings_ms=0 facts_ms=4 domain_ms=0 serialize_ms=0 total_ms=27 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=1 payload_bytes=6960 settings_ms=0 facts_ms=5 domain_ms=0 serialize_ms=0 total_ms=48 shadow_compared=false shadow_mismatch=""
+=== RUN   TestSatVerbalFullChain/after_priority_bad_input
+2026/11/24 10:23:48 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=1 candidates=0 payload_bytes=590 settings_ms=0 facts_ms=7 domain_ms=0 serialize_ms=0 total_ms=44 shadow_compared=false shadow_mismatch=""
+--- PASS: TestSatVerbalFullChain (1.68s)
+    --- PASS: TestSatVerbalFullChain/batch_accepts_separate_make_up_targets (0.27s)
+    --- PASS: TestSatVerbalFullChain/beginner_sec2_progressive_reveal_and_final_class (0.09s)
+    --- PASS: TestSatVerbalFullChain/beginner_sec3_targets_sec1_same_lesson (0.03s)
+    --- PASS: TestSatVerbalFullChain/missed_final_class_has_no_makeup (0.18s)
+    --- PASS: TestSatVerbalFullChain/submit_each_priority_level (0.24s)
+        --- PASS: TestSatVerbalFullChain/submit_each_priority_level/P1_Section_1_same_lesson (0.05s)
+        --- PASS: TestSatVerbalFullChain/submit_each_priority_level/P2_Rank_5 (0.04s)
+        --- PASS: TestSatVerbalFullChain/submit_each_priority_level/P3_Rank_4 (0.05s)
+        --- PASS: TestSatVerbalFullChain/submit_each_priority_level/P1_Section_1_wrong_lesson (0.04s)
+        --- PASS: TestSatVerbalFullChain/submit_each_priority_level/P2_Rank_5_final_class (0.02s)
+        --- PASS: TestSatVerbalFullChain/submit_each_priority_level/off-chain_Writing_Rank_5 (0.03s)
+    --- PASS: TestSatVerbalFullChain/rank3_sec2_skips_rank2 (0.06s)
+    --- PASS: TestSatVerbalFullChain/rank3_sec1_priorities (0.09s)
+    --- PASS: TestSatVerbalFullChain/rank2_rank3_excludes_own_class_clash (0.03s)
+    --- PASS: TestSatVerbalFullChain/ultimate_intensive_offers_only_reading_mastery (0.11s)
+    --- PASS: TestSatVerbalFullChain/mastery_student_rank3_goes_to_rank2 (0.12s)
+    --- PASS: TestSatVerbalFullChain/mastery_student_rank2_goes_to_rank3 (0.03s)
+    --- PASS: TestSatVerbalFullChain/realtime_practice_follows_main_rank (0.11s)
+    --- PASS: TestSatVerbalFullChain/brush_up_opposite_rank_same_subject (0.19s)
+    --- PASS: TestSatVerbalFullChain/after_priority_bad_input (0.07s)
+=== RUN   TestFullChain_StudentCanSubmitSuggestedRankChainTarget
+2026/11/24 10:23:49 INFO sessions_range_response mode=student impl=v2 staff_facing=false all_subjects=false lifetime=false bypass_timing=false subjects=1 courses=1 sessions=10 candidates=12 payload_bytes=5033 settings_ms=0 facts_ms=11 domain_ms=0 serialize_ms=0 total_ms=73 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:49 INFO sit-in submit policy validation duration_ms=7 selected_sessions=1
+--- PASS: TestFullChain_StudentCanSubmitSuggestedRankChainTarget (0.17s)
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation/unenrolled
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation/deleted
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation/hidden
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation/overlap
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation/absence_limit
+=== RUN   TestFullChain_FinalSessionsKeepStudentValidation/session_limit
+--- PASS: TestFullChain_FinalSessionsKeepStudentValidation (0.40s)
+    --- PASS: TestFullChain_FinalSessionsKeepStudentValidation/unenrolled (0.07s)
+    --- PASS: TestFullChain_FinalSessionsKeepStudentValidation/deleted (0.06s)
+    --- PASS: TestFullChain_FinalSessionsKeepStudentValidation/hidden (0.06s)
+    --- PASS: TestFullChain_FinalSessionsKeepStudentValidation/overlap (0.09s)
+    --- PASS: TestFullChain_FinalSessionsKeepStudentValidation/absence_limit (0.08s)
+    --- PASS: TestFullChain_FinalSessionsKeepStudentValidation/session_limit (0.04s)
+=== RUN   TestStaffCreate_AcceptsSuggestedSessionFromStaffLookup
+2026/11/24 10:23:49 INFO sessions_range_response mode=staff_enrolled impl=v2 staff_facing=true all_subjects=false lifetime=true bypass_timing=true subjects=1 courses=1 sessions=1 candidates=2 payload_bytes=2224 settings_ms=0 facts_ms=3 domain_ms=0 serialize_ms=0 total_ms=34 shadow_compared=false shadow_mismatch=""
+2026/11/24 10:23:49 INFO sit-in submit policy validation duration_ms=6 selected_sessions=1
+2026/11/24 10:23:49 INFO sit-in submit policy validation duration_ms=7 selected_sessions=1
+--- PASS: TestStaffCreate_AcceptsSuggestedSessionFromStaffLookup (0.13s)
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/suggested_remains_ineligible
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/special_does_not_authorize_a_suggested_selection
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/later_invalid_item_rolls_back_a_valid_special_sit-in
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/override_outside_selection
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/duplicate_override_and_unselected_session
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/wrong_target_course
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/deleted_target
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/missed_class_conflict
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/regular_class_conflict
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/single_creates_pending
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/batch_creates_pending_with_final_session_from_another_subject
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/duplicate_assignment
+=== RUN   TestStaffCreate_ExplicitSpecialSitIn/concurrent_assignments_commit_once
+    staff_create_integration_test.go:657: 201 {"id": "b7a526e4-5b0d-4314-a74f-723c8224cec2", "wcode": "woverride-20261124032349.657235000", "reason": null, "status": "pending", "date_to": "2026-11-22", "sit_ins": [{"id": "d8b9ba3c-cc69-4728-8c09-ccb66810592e", "end_at": "2026-11-28T04:23:49.666698Z", "start_at": "2026-11-28T03:23:49.666698Z", "course_id": "d3b94509-05ac-492c-9646-6ba03cb26f7f", "room_name": "R-20261124032349.670216000", "session_id": "6b7ad908-d2dd-488c-9f2b-7ff1c7af1485", "course_code": "TARGET-CRS-20261124032349.670216000", "course_name": "TARGET Course 20261124032349.670216000", "subject_name": "TARGET Subject 20261124032349.670216000", "time_changed_since_recorded": false}], "version": 1, "course_id": "c438b760-40dd-449d-a9ae-5989b3fbabd6", "date_from": "2026-11-22", "created_at": "2026-11-24T03:23:49.803989Z", "subject_id": "851e553d-3520-4243-a1bc-cdd03453d36f", "updated_at": "2026-11-24T03:23:49.803989Z", "admin_notes": null, "course_code": "OVERRIDE-CRS-20261124032349.657235000", "course_name": "OVERRIDE Course 20261124032349.657235000", "reviewed_at": null, "reviewed_by": null, "student_name": "OVERRIDE Student 20261124032349.657235000", "subject_code": "OVERRIDE-SUBJ-20261124032349.657235000", "subject_name": "OVERRIDE Subject 20261124032349.657235000", "sit_in_method": "physical", "student_email": null, "student_phone": null, "missed_sessions": [{"id": "6cbf72bb-93bd-4a69-a4eb-ae6a962dc67b", "end_at": "2026-11-22T04:23:49.666698Z", "start_at": "2026-11-22T03:23:49.666698Z", "course_id": "c438b760-40dd-449d-a9ae-5989b3fbabd6", "room_name": "R-20261124032349.657235000", "session_id": "e320a8e0-b870-4085-b392-92b659f64d5d", "course_code": "OVERRIDE-CRS-20261124032349.657235000", "course_name": "OVERRIDE Course 20261124032349.657235000", "subject_name": "OVERRIDE Subject 20261124032349.657235000", "time_changed_since_recorded": false}], "reason_category": null, "sit_in_course_id": "d3b94509-05ac-492c-9646-6ba03cb26f7f", "student_nickname": null, "sit_in_overridden": false, "sit_in_course_code": "TARGET-CRS-20261124032349.670216000", "sit_in_course_name": "TARGET Course 20261124032349.670216000", "sit_in_subject_name": "TARGET Subject 20261124032349.670216000", "sit_in_overridden_by": null, "sit_in_override_reason": null, "latest_session_change_id": null, "open_schedule_issue_count": 0, "critical_schedule_issue_count": 0}
+    staff_create_integration_test.go:657: 409 {"code":"sit_in_session_already_used","message":"A selected sit-in session is already assigned or overlaps another sit-in for this student. Choose another session.","details":{"conflicts":[{"absence_id":"b7a526e4-5b0d-4314-a74f-723c8224cec2","absence_subject_name":"OVERRIDE Subject 20261124032349.657235000","absence_date_from":"2026-11-22","absence_date_to":"2026-11-22","sit_in_subject_name":"TARGET Subject 20261124032349.670216000","sit_in_course_name":"TARGET Course 20261124032349.670216000","sit_in_start_at":"2026-11-28T10:23:49+07:00","sit_in_end_at":"2026-11-28T11:23:49+07:00"}],"session_ids":["6b7ad908-d2dd-488c-9f2b-7ff1c7af1485"]}}
+--- PASS: TestStaffCreate_ExplicitSpecialSitIn (0.17s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/suggested_remains_ineligible (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/special_does_not_authorize_a_suggested_selection (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/later_invalid_item_rolls_back_a_valid_special_sit-in (0.02s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/override_outside_selection (0.00s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/duplicate_override_and_unselected_session (0.00s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/wrong_target_course (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/deleted_target (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/missed_class_conflict (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/regular_class_conflict (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/single_creates_pending (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/batch_creates_pending_with_final_session_from_another_subject (0.01s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/duplicate_assignment (0.00s)
+    --- PASS: TestStaffCreate_ExplicitSpecialSitIn/concurrent_assignments_commit_once (0.02s)
+=== RUN   TestIdempotency_SameKeyAcrossReplicasOneRow
+--- PASS: TestIdempotency_SameKeyAcrossReplicasOneRow (0.06s)
+=== RUN   TestMergeMembership_ChangeSerializesWithSubmissionLock
+--- PASS: TestMergeMembership_ChangeSerializesWithSubmissionLock (0.53s)
+PASS
+ok  	warwick-institute/internal/httpapi/absenceshttp	5.076s

@@ -50,7 +50,7 @@ import MakeUpPicker, {
 import {
   duplicateSitInSessionIds,
   mergeAbsenceBatchItemsByScope,
-  selectedSitInCourseIDForScope,
+  suggestedSitInForSubmission,
 } from "../../features/absences/domain/submissionPayload";
 import type {
   SubjectSessions,
@@ -1296,7 +1296,11 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       return;
     }
     const created: string[] = [];
-    const requests: StaffCreateAbsenceRequest[] = [];
+    const requestEntries: Array<{
+      scopeKey: string;
+      targetMergeGroupId?: string;
+      item: StaffCreateAbsenceRequest;
+    }> = [];
     let sitInDayConflict = false;
 
     const selectedScopeGroups = new Map<string, SubjectSessions[]>();
@@ -1310,194 +1314,71 @@ export default function StaffCreateAbsenceModal({ onClose, onCreated }: Props) {
       selectedScopeGroups.set(scopeKey, groups);
     }
 
-    for (const scopeGroups of selectedScopeGroups.values()) {
-      const primaryGroup = scopeGroups[0];
-      if (!primaryGroup) continue;
-      const selectedSessionsById = new Map<
+    for (const [scopeKey, scopeGroups] of selectedScopeGroups) {
+      const missedSessions = new Map<
         string,
-        SubjectSessions["sessions"][number]
+        { group: SubjectSessions; session: SubjectSessions["sessions"][number] }
       >();
       for (const group of scopeGroups) {
-        for (const session of getSelectedSessionsForGroup(
+        for (const session of getSelectedSessionsForGroup(group, selectedSessionIds)) {
+          if (!missedSessions.has(session.id)) {
+            missedSessions.set(session.id, { group, session });
+          }
+        }
+      }
+      const hasSpecialSitIn = [...missedSessions.keys()].some(
+        (id) => sitInModes[id] === "special",
+      );
+
+      for (const { group, session } of missedSessions.values()) {
+        const assignment = suggestedSitInForSubmission(
           group,
-          selectedSessionIds,
-        )) {
-          selectedSessionsById.set(session.id, session);
-        }
-      }
-      const selectedSessions = [...selectedSessionsById.values()].sort((a, b) =>
-        a.start_at.localeCompare(b.start_at),
-      );
-      if (selectedSessions.length === 0) continue;
-
-      const missedIds = selectedSessions.map((session) => session.id);
-      const hasSpecialSitIn = missedIds.some(
-        (id) => (sitInModes[id] ?? "suggested") === "special",
-      );
-
-      // --- Special sit-in path: one absence per distinct sit-in course ---
-      // A single absence (e.g. absent from subject A) may be made up across
-      // several other subjects (C, D, E, F) at once, so we emit one
-      // staff-create record per distinct special sit-in course.
-      if (hasSpecialSitIn) {
-        const partitions = new Map<
-          string,
-          {
-            missed: string[];
-            sessions: Set<string>;
-            specialSessions: Set<string>;
-            method: string | undefined;
-          }
-        >();
-        const suggestedSitInCourseId =
-          selectedSitInCourseIDForScope(
-            scopeGroups,
-            missedIds,
-            sitInSelections,
-            sitInPriorityLevels,
-            sitInPriorityHistory,
-          ) ?? primaryGroup.course_id;
-        for (const missedId of missedIds) {
-          const isSpecial =
-            (sitInModes[missedId] ?? "suggested") === "special";
-          const ownerGroup =
-            scopeGroups.find((candidate) =>
-              candidate.sessions.some((session) => session.id === missedId),
-            ) ?? primaryGroup;
-          let courseId: string;
-          let sessionIds: string[];
-          let method: string | undefined;
-          if (isSpecial) {
-            const sel = specialSitInSelections[missedId];
-            const option =
-              sel?.sessionValue
-                ? findSpecialSitInSessionOption(
-                    specialSitInSessionsBySubject[sel.subjectId] ?? [],
-                    sel.sessionValue,
-                  )
-                : null;
-            courseId = option?.courseId ?? primaryGroup.course_id;
-            sessionIds = sel?.sessionValue
-              ? splitMergedSessionValue(sel.sessionValue)
-              : [];
-            method = courseId && sessionIds.length > 0 ? "physical" : undefined;
-          } else {
-            sessionIds = splitMergedSessionValue(sitInSelections[missedId]);
-            courseId = suggestedSitInCourseId;
-            const sitIn = sitInForMissedSession(ownerGroup, missedId);
-            method =
-              sitIn?.sit_in_method === "physical" ||
-              sitIn?.sit_in_method === "zoom"
-                ? sitIn.sit_in_method
-                : undefined;
-          }
-          const bucket = partitions.get(courseId) ?? {
-            missed: [],
-            sessions: new Set<string>(),
-            specialSessions: new Set<string>(),
-            method,
-          };
-          bucket.missed.push(missedId);
-          for (const sid of sessionIds) {
-            bucket.sessions.add(sid);
-            if (isSpecial) bucket.specialSessions.add(sid);
-          }
-          bucket.method = method ?? bucket.method;
-          partitions.set(courseId, bucket);
-        }
-
-        for (const [courseId, bucket] of partitions) {
-          const partSessions = selectedSessions.filter((s) =>
-            bucket.missed.includes(s.id),
-          );
-          const dates = [...new Set(partSessions.map((s) => s.date))].sort();
-          const dateFrom = dates[0];
-          const dateTo = dates[dates.length - 1];
-          if (!dateFrom || !dateTo) continue;
-          requests.push({
-            wcode: student.wcode,
-            subject_id: primaryGroup.subject_id,
-            course_id: primaryGroup.course_id,
-            date_from: dateFrom,
-            date_to: dateTo,
-            missed_session_ids: bucket.missed,
-            sit_in_method: bucket.method,
-            sit_in_course_id: bucket.method ? courseId : undefined,
-            sit_in_session_ids: [...bucket.sessions],
-            special_sit_in_session_ids: [...bucket.specialSessions],
-            reason_category: reasonCategory || undefined,
-            reason: reason || undefined,
-            status:
-              absenceType === "special" ? "special_approved" : undefined,
-          });
-        }
-        continue;
-      }
-
-      // --- Standard single-course path (no special sit-ins) ---
-      const dates = [...new Set(selectedSessions.map((s) => s.date))].sort();
-      const dateFrom = dates[0];
-      const dateTo = dates[dates.length - 1];
-      if (!dateFrom || !dateTo) continue;
-
-      const sitInSessionIds: string[] = [];
-      let sitInMethod: string | undefined;
-
-      for (const missedId of missedIds) {
-        const selected = splitMergedSessionValue(sitInSelections[missedId]);
-        for (const sid of selected) sitInSessionIds.push(sid);
-        const ownerGroup =
-          scopeGroups.find((candidate) =>
-            candidate.sessions.some((session) => session.id === missedId),
-          ) ?? primaryGroup;
-        const sitIn = sitInForMissedSession(ownerGroup, missedId);
-        if (
-          sitIn?.sit_in_method === "physical" ||
-          sitIn?.sit_in_method === "zoom"
-        ) {
-          sitInMethod = sitIn.sit_in_method;
-        }
-      }
-
-      const uniqueSitInSessionIds = [...new Set(sitInSessionIds)];
-      const sitInCourseId =
-        selectedSitInCourseIDForScope(
-          scopeGroups,
-          missedIds,
+          session.id,
           sitInSelections,
           sitInPriorityLevels,
           sitInPriorityHistory,
-        ) ?? primaryGroup.course_id;
-
-      requests.push({
-        wcode: student.wcode,
-        subject_id: primaryGroup.subject_id,
-        course_id: primaryGroup.course_id,
-        date_from: dateFrom,
-        date_to: dateTo,
-        missed_session_ids: missedIds,
-        sit_in_method: sitInMethod,
-        sit_in_course_id: sitInMethod ? sitInCourseId : undefined,
-        sit_in_session_ids: uniqueSitInSessionIds,
-        special_sit_in_session_ids: [],
-        reason_category: reasonCategory || undefined,
-        reason: reason || undefined,
-        status: absenceType === "special" ? "special_approved" : undefined,
-      });
+        );
+        const isSpecial = sitInModes[session.id] === "special";
+        if (isSpecial) {
+          const selection = specialSitInSelections[session.id];
+          const option = selection?.sessionValue
+            ? findSpecialSitInSessionOption(
+                specialSitInSessionsBySubject[selection.subjectId] ?? [],
+                selection.sessionValue,
+              )
+            : null;
+          if (!option) {
+            addToast("error", "Select a special sit-in subject and session");
+            setSubmitting(false);
+            return;
+          }
+          assignment.method = "physical";
+          assignment.courseId = option.courseId;
+          assignment.sessionIds = splitMergedSessionValue(selection.sessionValue);
+        }
+        requestEntries.push({
+          scopeKey,
+          targetMergeGroupId: hasSpecialSitIn ? undefined : assignment.targetMergeGroupId,
+          item: {
+            wcode: student.wcode,
+            subject_id: group.subject_id,
+            course_id: group.course_id,
+            date_from: session.date,
+            date_to: session.date,
+            missed_session_ids: [session.id],
+            sit_in_method: assignment.method,
+            sit_in_course_id: assignment.method ? assignment.courseId : undefined,
+            sit_in_session_ids: assignment.sessionIds,
+            special_sit_in_session_ids: isSpecial ? assignment.sessionIds : [],
+            reason_category: reasonCategory || undefined,
+            reason: reason || undefined,
+            status: absenceType === "special" ? "special_approved" : undefined,
+          },
+        });
+      }
     }
 
-    const scopeKeyByCourseID = new Map(
-      submissionSessions.map((group) => [group.course_id, absenceScopeKey(group)]),
-    );
-    const mergedRequests = mergeAbsenceBatchItemsByScope(
-      requests.map((item) => ({
-        scopeKey:
-          scopeKeyByCourseID.get(item.course_id ?? "") ??
-          `course:${item.course_id ?? ""}`,
-        item,
-      })),
-    );
-    requests.splice(0, requests.length, ...mergedRequests);
+    const requests = mergeAbsenceBatchItemsByScope(requestEntries);
 
     if (duplicateSitInSessionIds(requests).length > 0) {
       handleDuplicateSitInSelection();

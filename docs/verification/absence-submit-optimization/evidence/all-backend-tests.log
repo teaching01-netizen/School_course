@@ -1,0 +1,92 @@
+?   	warwick-institute/cmd/admin	[no test files]
+?   	warwick-institute/cmd/admincheck	[no test files]
+?   	warwick-institute/cmd/capture-students	[no test files]
+?   	warwick-institute/cmd/cleanup-idempotency	[no test files]
+?   	warwick-institute/cmd/cleanup-verification-sessions	[no test files]
+?   	warwick-institute/cmd/crmtest	[no test files]
+?   	warwick-institute/cmd/debug-legacy	[no test files]
+?   	warwick-institute/cmd/devseed	[no test files]
+ok  	warwick-institute/cmd/legacy-sync	(cached)
+?   	warwick-institute/cmd/migrate	[no test files]
+ok  	warwick-institute/cmd/server	(cached)
+?   	warwick-institute/cmd/snapshot-backfill	[no test files]
+ok  	warwick-institute/internal/absences	(cached)
+?   	warwick-institute/internal/absences/selfservice	[no test files]
+?   	warwick-institute/internal/absences/sitinresolver	[no test files]
+ok  	warwick-institute/internal/auth	(cached)
+ok  	warwick-institute/internal/backfill	(cached)
+ok  	warwick-institute/internal/clientip	(cached)
+ok  	warwick-institute/internal/config	(cached)
+ok  	warwick-institute/internal/courseadmin	(cached)
+ok  	warwick-institute/internal/coursegroups	(cached)
+?   	warwick-institute/internal/crmclient	[no test files]
+ok  	warwick-institute/internal/crmimport	(cached)
+?   	warwick-institute/internal/crmimport/crmtypes	[no test files]
+ok  	warwick-institute/internal/crmimport/crossstudy	(cached)
+ok  	warwick-institute/internal/crmimport/queue	(cached)
+ok  	warwick-institute/internal/crmimport/reconcile	(cached)
+ok  	warwick-institute/internal/crmimport/xlsx	(cached)
+ok  	warwick-institute/internal/db	3.015s
+?   	warwick-institute/internal/devseed	[no test files]
+ok  	warwick-institute/internal/emailnotifier	(cached)
+ok  	warwick-institute/internal/emailreminder	(cached)
+ok  	warwick-institute/internal/httpapi	(cached)
+ok  	warwick-institute/internal/httpapi/absenceshttp	2.791s
+ok  	warwick-institute/internal/httpapi/activecourseshttp	(cached)
+ok  	warwick-institute/internal/httpapi/adminusershttp	(cached)
+?   	warwick-institute/internal/httpapi/audithttp	[no test files]
+ok  	warwick-institute/internal/httpapi/availabilityhttp	(cached)
+ok  	warwick-institute/internal/httpapi/corehttp	(cached)
+ok  	warwick-institute/internal/httpapi/courselevelshttp	(cached)
+ok  	warwick-institute/internal/httpapi/courseshttp	(cached)
+ok  	warwick-institute/internal/httpapi/crmhttp	(cached)
+ok  	warwick-institute/internal/httpapi/emailnotifierhttp	(cached)
+ok  	warwick-institute/internal/httpapi/httpadapter	(cached)
+?   	warwick-institute/internal/httpapi/httpdeps	[no test files]
+ok  	warwick-institute/internal/httpapi/legacysynchttp	(cached)
+ok  	warwick-institute/internal/httpapi/realtimehttp	(cached)
+?   	warwick-institute/internal/httpapi/roomshttp	[no test files]
+?   	warwick-institute/internal/httpapi/satverbalpolicyhttp	[no test files]
+ok  	warwick-institute/internal/httpapi/scheduleconflictshttp	(cached)
+ok  	warwick-institute/internal/httpapi/schedulepolicyhttp	(cached)
+ok  	warwick-institute/internal/httpapi/schedulinghttp	(cached)
+ok  	warwick-institute/internal/httpapi/serieshttp	(cached)
+ok  	warwick-institute/internal/httpapi/sessionchangehttp	(cached)
+ok  	warwick-institute/internal/httpapi/sessiondaterange	(cached)
+ok  	warwick-institute/internal/httpapi/sessionshttp	(cached)
+?   	warwick-institute/internal/httpapi/sitinruleshttp	[no test files]
+?   	warwick-institute/internal/httpapi/staffabsencehttp	[no test files]
+ok  	warwick-institute/internal/httpapi/studentshttp	(cached)
+?   	warwick-institute/internal/httpapi/subjectshttp	[no test files]
+ok  	warwick-institute/internal/httpapi/teacherhttp	(cached)
+?   	warwick-institute/internal/httpapi/usershttp	[no test files]
+ok  	warwick-institute/internal/idempotency	(cached)
+ok  	warwick-institute/internal/jobqueue	(cached)
+ok  	warwick-institute/internal/legacysync	(cached)
+ok  	warwick-institute/internal/legacysync/apply	(cached)
+ok  	warwick-institute/internal/legacysync/client	(cached)
+ok  	warwick-institute/internal/legacysync/detector	(cached)
+ok  	warwick-institute/internal/legacysync/normalize	(cached)
+ok  	warwick-institute/internal/legacysync/outbox	(cached)
+ok  	warwick-institute/internal/legacysync/parser	(cached)
+ok  	warwick-institute/internal/legacysync/reconcile	(cached)
+ok  	warwick-institute/internal/legacysync/storage	(cached)
+ok  	warwick-institute/internal/logging	(cached)
+ok  	warwick-institute/internal/otp	(cached)
+ok  	warwick-institute/internal/otpdelivery	(cached)
+ok  	warwick-institute/internal/pg	(cached)
+?   	warwick-institute/internal/ratelimit	[no test files]
+ok  	warwick-institute/internal/realtime	(cached)
+ok  	warwick-institute/internal/satverbalpolicy	(cached)
+ok  	warwick-institute/internal/schedulelock	(cached)
+?   	warwick-institute/internal/schedulepolicy	[no test files]
+ok  	warwick-institute/internal/scheduling	(cached)
+ok  	warwick-institute/internal/series	(cached)
+ok  	warwick-institute/internal/sessionchangedelivery	(cached)
+ok  	warwick-institute/internal/sessionchangeimpact	(cached)
+ok  	warwick-institute/internal/smartsms	(cached)
+ok  	warwick-institute/internal/snapshot	(cached)
+ok  	warwick-institute/internal/studentauth	(cached)
+ok  	warwick-institute/internal/teachermerge	(cached)
+?   	warwick-institute/internal/teacherpolicy	[no test files]
+ok  	warwick-institute/internal/users	(cached)

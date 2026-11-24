@@ -1811,7 +1811,7 @@ describe("special sit-in multi-subject coverage", () => {
     ],
   };
 
-  function routeSpecialMocks() {
+  function routeSpecialMocks(regularSessions = MOCK_SESSIONS_TWO_MISSED) {
     mockApiJson.mockImplementation(async (url: unknown) => {
       const u = String(url);
       if (u.includes("student-lookup")) return MOCK_STUDENT_SPECIAL;
@@ -1820,7 +1820,7 @@ describe("special sit-in multi-subject coverage", () => {
       if (u.includes("sessions-in-range")) {
         if (u.includes("subject_ids=subB")) return MOCK_SPECIAL_SESSIONS_B;
         if (u.includes("subject_ids=subC")) return MOCK_SPECIAL_SESSIONS_C;
-        return MOCK_SESSIONS_TWO_MISSED;
+        return regularSessions;
       }
       if (u.includes("staff-create"))
         return { ids: ["abs-created"] };
@@ -1850,6 +1850,47 @@ describe("special sit-in multi-subject coverage", () => {
       expect(screen.getByText(/2 class days/)).toBeInTheDocument();
     });
   }
+
+  it("submits suggested make-ups for different targets in separate items", async () => {
+    const user = userEvent.setup();
+    const group = MOCK_SESSIONS_TWO_MISSED.subjects[0];
+    const secondTarget = {
+      ...group.sit_in,
+      sit_in_course: { ...group.sit_in.sit_in_course, id: "sitcourse2" },
+      available_sessions: [{
+        id: "sit2",
+        start_at: "2026-06-27T14:00:00Z",
+        end_at: "2026-06-27T15:00:00Z",
+        course_id: "sitcourse2",
+      }],
+    };
+    const sitIn = {
+      ...group.sit_in,
+      sit_in_by_missed_session: { sessA1: group.sit_in, sessA2: secondTarget },
+    };
+    routeSpecialMocks({ subjects: [{ ...group, sit_in: sitIn }] });
+    renderModal();
+    await reachSessionsStep(user);
+
+    const [firstDay, secondDay] = screen.getAllByRole("checkbox");
+    await user.click(firstDay);
+    await user.click(secondDay);
+    const [firstPicker, secondPicker] = screen.getAllByRole("combobox", { name: /make-up class/i });
+    await user.selectOptions(firstPicker, "sit1");
+    await user.selectOptions(secondPicker, "sit2");
+    await user.click(screen.getByRole("button", { name: /next/i }));
+    await user.click(screen.getByRole("button", { name: /create absence/i }));
+
+    await waitFor(() => {
+      const call = mockApiJson.mock.calls.find(([path]) => path === "/api/v1/absences/staff-create");
+      expect(call).toBeDefined();
+      const { items } = JSON.parse((call?.[1] as RequestInit).body as string);
+      expect(items).toMatchObject([
+        { sit_in_course_id: "sitcourse1", missed_session_ids: ["sessA1"], sit_in_session_ids: ["sit1"] },
+        { sit_in_course_id: "sitcourse2", missed_session_ids: ["sessA2"], sit_in_session_ids: ["sit2"] },
+      ]);
+    });
+  });
 
   it("creates one absence per special sit-in course when a special absence spans multiple subjects", async () => {
     const user = userEvent.setup();
