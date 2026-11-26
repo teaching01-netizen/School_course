@@ -436,6 +436,43 @@ describe("absence submission payload builder", () => {
     });
   });
 
+  it("uses the revealed make-up target for both members of each merged missed date", () => {
+    const reading = { ...baseGroup, merge_group_id: "rank-3", sessions: [
+      baseGroup.sessions[0],
+      { id: "missed-2", start_at: "2026-06-02T09:00:00+07:00", end_at: "2026-06-02T10:00:00+07:00", date: "2026-06-02", already_absent: false },
+    ] };
+    const writing: SubjectSessions = {
+      ...reading, subject_id: "writing", course_id: "writing-course",
+      sessions: reading.sessions.map((session, index) => ({ ...session, id: `writing-${index + 1}`, start_at: `${session.date}T10:00:00+07:00`, end_at: `${session.date}T11:00:00+07:00` })),
+      sit_in: { sit_in_method: "physical", sit_in_course: { id: "rank-2", code: "R2", name: "Rank 2" } },
+    };
+    const revealed: SubjectSessions = { ...reading, sit_in: { sit_in_method: "physical", current_priority_level: 3, priorities: [{
+      level: 3, label: "Rank 4", sit_in_course: { id: "rank-4", code: "R4", name: "Rank 4" },
+      available_sessions: [
+        { id: "rank4-june23", start_at: "2026-06-23T17:00:00+07:00", end_at: "2026-06-23T20:20:00+07:00" },
+        { id: "rank4-june16", start_at: "2026-06-16T17:00:00+07:00", end_at: "2026-06-16T20:20:00+07:00" },
+      ],
+    }] } };
+    const result = buildSubmissionPayloads({
+      lookupWcode: "W250389",
+      sessions: [writing, { ...reading, sit_in: writing.sit_in }],
+      selectedSubjectIds: [reading.subject_id, writing.subject_id],
+      selectedSessionIds: new Set(["missed-1", "missed-2", "writing-1", "writing-2"]),
+      sitInSelections: { "missed-1": "rank4-june23", "writing-1": "rank4-june23", "missed-2": "rank4-june16", "writing-2": "rank4-june16" },
+      sitInPriorityLevels: { "missed-1": 3, "missed-2": 3 },
+      sitInPriorityHistory: { "missed-1": { 3: revealed }, "missed-2": { 3: revealed } },
+      reason: "Travel",
+      maxDateRangeDays: 30,
+    });
+
+    expect(result).toMatchObject({ ok: true, payloads: [{
+      subject_id: reading.subject_id, course_id: reading.course_id,
+      date_from: "2026-06-01", date_to: "2026-06-02", sit_in_course_id: "rank-4",
+      missed_session_ids: ["writing-1", "writing-2", "missed-1", "missed-2"],
+      sit_in_session_ids: ["rank4-june23", "rank4-june16"],
+    }] });
+  });
+
   it("builds one payload when another enrolled subject has sessions on the same day at a different time", () => {
     const result = buildSubmissionPayloads({
       lookupWcode: "W250389",

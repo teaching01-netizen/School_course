@@ -2,7 +2,9 @@ import type { SubjectSessions } from "../types";
 import { daysBetween } from "./dateRange";
 import {
   absenceScopeKey,
+  combineSubjectGroups,
   getSelectedSessionsForGroup,
+  groupByDay,
   instituteDateKey,
   splitMergedSessionValue,
   uniqueValues,
@@ -378,6 +380,24 @@ export function buildSubmissionPayloads(
   input: BuildSubmissionPayloadsInput,
 ): BuildSubmissionPayloadsResult {
   if (!input.lookupWcode) return { ok: true, payloads: [] };
+  const selectedGroups = input.sessions.filter((group) => input.selectedSubjectIds.includes(group.subject_id));
+  const groupBySessionId = new Map(selectedGroups.flatMap((group) => group.sessions.map((session) => [session.id, group] as const)));
+  const pickerSessionByMember = new Map<string, string>();
+  for (const block of combineSubjectGroups(selectedGroups)) {
+    if (!block.isMerged) continue;
+    for (const day of groupByDay(block.sessions)) {
+      const first = day.items.find((session) => !session.already_absent);
+      if (!first || !input.selectedSessionIds.has(first.id)) continue;
+      const selection = input.sitInSelections[first.id];
+      if (!selection) continue;
+      // The merged date has one picker, so only its first session stores the revealed priority.
+      for (const member of day.items) {
+        if (member.id !== first.id && input.sitInSelections[member.id] === selection) {
+          pickerSessionByMember.set(member.id, first.id);
+        }
+      }
+    }
+  }
   const payloadEntries: Array<{ scopeKey: string; targetMergeGroupId?: string; item: AbsenceBatchCreateItem }> = [];
   const attendingByDate = collectAttendingSessions(input.sessions);
   const selectedSitInIntervals: Array<{
@@ -386,8 +406,7 @@ export function buildSubmissionPayloads(
     mergeGroupID: string | null;
     time: SessionTime;
   }> = [];
-  for (const group of input.sessions) {
-    if (!input.selectedSubjectIds.includes(group.subject_id)) continue;
+  for (const group of selectedGroups) {
     if (group.absence_limit_reached) continue;
     const selectedGroupSessions = getSelectedSessionsForGroup(
       group,
@@ -458,9 +477,11 @@ export function buildSubmissionPayloads(
       selectedSitInIntervals.push({ scopeKey, id: sid, mergeGroupID, time });
     }
     for (const session of selectedGroupSessions) {
+      const pickerSessionId = pickerSessionByMember.get(session.id) ?? session.id;
+      const pickerGroup = groupBySessionId.get(pickerSessionId) ?? group;
       const assignment = suggestedSitInForSubmission(
-        group,
-        session.id,
+        pickerGroup,
+        pickerSessionId,
         input.sitInSelections,
         input.sitInPriorityLevels,
         input.sitInPriorityHistory,
@@ -469,8 +490,8 @@ export function buildSubmissionPayloads(
         scopeKey: absenceScopeKey(group),
         targetMergeGroupId: assignment.targetMergeGroupId,
         item: {
-          subject_id: group.subject_id,
-          course_id: group.course_id,
+          subject_id: pickerGroup.subject_id,
+          course_id: pickerGroup.course_id,
           date_from: session.date,
           date_to: session.date,
           reason: input.reason.trim() || undefined,

@@ -138,9 +138,11 @@ describe("AbsenceForm staff mode", () => {
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("staff-form-batch"))).toBe(false);
   });
 
-  it("appends available alternatives and preserves the selection in Staff preview", async () => {
+  it("preserves the selection while browsing and submits one revealed make-up for a merged date", async () => {
     const user = userEvent.setup();
     const math = PUBLIC_FORM_SESSIONS.subjects[0];
+    const physics = PUBLIC_FORM_SESSIONS.subjects[1];
+    const merge = { merge_group_id: "merged-course", merge_group_name: "Mathematics and Physics" };
     const firstCourse = { id: "target-1", code: "T1", name: "First course" };
     const nextCourse = { id: "target-2", code: "T2", name: "Second course" };
     const first = { id: "first", course_id: firstCourse.id, start_at: "2026-08-06T02:00:00Z", end_at: "2026-08-06T03:30:00Z" };
@@ -157,7 +159,19 @@ describe("AbsenceForm staff mode", () => {
         { level: 2, label: "Second", sit_in_course: nextCourse, available_sessions: [next], unavailable_sessions: [{ session: final, reason: "Final class", reason_code: "target_final_class" }] },
       ],
     };
-    installStaffRoutes({ subjects: (path) => [{ ...math, sit_in: path.includes("sat_verbal_after_priority=1") ? revealedSitIn : initialSitIn }] });
+    installStaffRoutes({
+      lookup: { ...MANUAL_EMAIL_STUDENT, subjects: [
+        { id: math.subject_id, code: math.subject_code, name: math.subject_name, ...merge },
+        { id: physics.subject_id, code: physics.subject_code, name: physics.subject_name, ...merge },
+      ] },
+      subjects: (path) => [
+        {
+          ...physics, ...merge, sit_in: initialSitIn,
+          sessions: [{ ...math.sessions[0], id: "physics-on-same-day", start_at: "2026-08-03T03:30:00Z", end_at: "2026-08-03T05:00:00Z" }],
+        },
+        { ...math, ...merge, sit_in: path.includes("sat_verbal_after_priority=1") ? revealedSitIn : initialSitIn },
+      ],
+    });
     renderWithProviders(<AbsenceForm mode="staff" />);
 
     await searchStaffStudent(user);
@@ -182,7 +196,12 @@ describe("AbsenceForm staff mode", () => {
     await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
     await screen.findByRole("heading", { name: "Absence recorded" });
     const submission = mockApiJson.mock.calls.find(([url]) => String(url).endsWith("/staff-form-batch"));
-    expect(JSON.parse(String(submission?.[1]?.body)).items).toEqual([expect.objectContaining({ sit_in_course_id: nextCourse.id, sit_in_session_ids: [next.id] })]);
+    expect(JSON.parse(String(submission?.[1]?.body)).items).toEqual([expect.objectContaining({
+      course_id: math.course_id,
+      missed_session_ids: ["physics-on-same-day", math.sessions[0].id],
+      sit_in_course_id: nextCourse.id,
+      sit_in_session_ids: [next.id],
+    })]);
   }, 30000);
 
   it("counts a date shared by two merged courses once in the staff summary", async () => {
