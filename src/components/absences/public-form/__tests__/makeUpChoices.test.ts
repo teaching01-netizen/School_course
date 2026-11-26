@@ -88,4 +88,41 @@ describe("public make-up choices", () => {
     expect(result.options).toHaveLength(1);
     expect(result.options[0]).toMatchObject({ value: "part-a|part-b", disabled: false });
   });
+
+  it("combines blocked members of a merged make-up class across priorities", () => {
+    const merge = { merge_group_id: "merged-target", merge_group_name: "Rank 3 Section 2" };
+    const reading = { ...first, id: "reading", teacher_name: "AJ. NICE" };
+    const writing = { ...first, id: "writing", start_at: first.end_at, end_at: "2026-10-24T12:20:00+07:00", teacher_name: "AJ. RYU" };
+    const initial: SubjectSessions = { ...group, sit_in: { ...group.sit_in!, priorities: [{
+      level: 1, label: "First", sit_in_course: { id: "reading-course", code: "R", name: "Reading", ...merge },
+      unavailable_sessions: [{ session: reading, reason: "Outside window", reason_code: "outside_cutoff" }],
+    }] } };
+    const next: SubjectSessions = { ...group, sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false, priorities: [{
+      level: 2, label: "Second", sit_in_course: { id: "writing-course", code: "W", name: "Writing", ...merge },
+      unavailable_sessions: [{ session: writing, reason: "Final class", reason_code: "target_final_class" }],
+    }] } };
+
+    expect(choices({ group: initial, history: { 2: next } }).options).toEqual([
+      expect.objectContaining({
+        value: "reading|writing", disabled: true,
+        description: "This date is outside the make-up period · The final class can't be used as a make-up",
+        display: expect.objectContaining({ className: "Rank 3 Section 2", teacherName: "AJ. NICE, AJ. RYU", startTime: "09:00", endTime: "12:20" }),
+      }),
+    ]);
+  });
+
+  it("keeps one merged card when a later response blocks a previously offered member", () => {
+    const course = { id: "target", code: "T", name: "English", merge_group_id: "merged-target" };
+    const partA = { ...first, id: "part-a" };
+    const partB = { ...first, id: "part-b" };
+    const initial: SubjectSessions = { ...group, sit_in: { ...group.sit_in!, priorities: [{ level: 1, label: "First", sit_in_course: course, available_sessions: [partA, partB] }] } };
+    const next: SubjectSessions = { ...group, sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false, priorities: [{
+      level: 2, label: "Second", sit_in_course: course,
+      unavailable_sessions: [{ session: partB, reason: "Already used", reason_code: "sit_in_session_already_used" }],
+    }] } };
+
+    expect(choices({ group: initial, history: { 2: next } }).options).toEqual([
+      expect.objectContaining({ value: "part-a|part-b", disabled: true, description: "Already assigned to another absence" }),
+    ]);
+  });
 });

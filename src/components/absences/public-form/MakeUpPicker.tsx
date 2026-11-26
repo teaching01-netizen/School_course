@@ -94,7 +94,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
 
   useEffect(() => {
     const request = moreRequest.current;
-    if (!request || moreTimes?.loading || options.length <= request.count) return;
+    if (!request || moreTimes?.loading) return;
     moreRequest.current = null;
     if (!sheetOpen) return;
     const addedDay = firstAddedOptionDay(options, request.values);
@@ -107,7 +107,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     const newChoice = choicesRef.current?.querySelector<HTMLInputElement>(`input[data-option-index="${request.count}"]:not(:disabled)`);
     const status = choicesRef.current?.parentElement?.querySelector<HTMLElement>("[data-more-times-status]");
     (newChoice ?? status)?.focus({ preventScroll: true });
-  }, [activeDay, days, moreTimes?.loading, options, sheetOpen]);
+  }, [activeDay, days, moreTimes?.hasMore, moreTimes?.loading, options, sheetOpen]);
 
   // Keep the active day visible in the strip, and land focus on the day that a
   // "See other times" reveal switched to.

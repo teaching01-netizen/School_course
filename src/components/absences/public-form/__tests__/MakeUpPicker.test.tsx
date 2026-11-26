@@ -262,6 +262,21 @@ describe("MakeUpPicker", () => {
     expect(within(dialog).getByRole("radio", { name: /17 Jan · 09:00–10:00/ })).toBeInTheDocument();
   });
 
+  it("focuses the exhausted status when a reveal adds a member to an existing merged card", async () => {
+    const user = userEvent.setup();
+    const onLoad = vi.fn();
+    const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "", onChange: vi.fn() };
+    const blocked = { ...dayOptions[0], value: "reading", disabled: true };
+    const { rerender } = render(<MakeUpPicker {...props} options={[blocked]} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
+    await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "See other times" }));
+
+    rerender(<MakeUpPicker {...props} options={[{ ...blocked, value: "reading|writing" }]} moreTimes={{ hasMore: false, loading: false, onLoad }} />);
+
+    expect(within(dialog).getByText("No more times to show.")).toHaveFocus();
+  });
+
   it("offers See other times inside the sheet when the visible times are blocked", async () => {
     const user = userEvent.setup();
     const onLoad = vi.fn();

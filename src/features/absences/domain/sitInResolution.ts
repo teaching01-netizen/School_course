@@ -318,21 +318,26 @@ export function sitInOptionsByTargetAndSession(
   priorities: SitInPriority[],
   missedSessionIds: string[],
 ): SitInOptionGroup[] {
+  return groupSitInOptionsByTargetAndDay(priorities.map((priority) => ({
+    items: availableSessionsForMissedSessions(priority, missedSessionIds),
+    sitInCourse: priority.sit_in_course,
+  })));
+}
+
+export function groupSitInOptionsByTargetAndDay(optionGroups: SitInOptionGroup[]): SitInOptionGroup[] {
   const buckets = new Map<string, SitInOptionGroup>();
   const seenSessionIDs = new Set<string>();
-  priorities.forEach((priority, index) => {
-    const sessions = availableSessionsForMissedSessions(priority, missedSessionIds);
-    if (sessions.length === 0) return;
-    const key = sitInTargetKey(priority.sit_in_course, sessions, `priority:${index}`);
+  optionGroups.forEach(({ items, sitInCourse }, index) => {
+    if (items.length === 0) return;
+    const key = sitInTargetKey(sitInCourse, items, `target:${index}`);
+    const uniqueSessions = items.filter((session) => !seenSessionIDs.has(session.id));
+    uniqueSessions.forEach((session) => seenSessionIDs.add(session.id));
     const bucket = buckets.get(key);
     if (bucket) {
-      bucket.items.push(...sessions.filter((session) => !seenSessionIDs.has(session.id)));
-      sessions.forEach((session) => seenSessionIDs.add(session.id));
+      bucket.items.push(...uniqueSessions);
       return;
     }
-    const uniqueSessions = sessions.filter((session) => !seenSessionIDs.has(session.id));
-    uniqueSessions.forEach((session) => seenSessionIDs.add(session.id));
-    buckets.set(key, { items: uniqueSessions, sitInCourse: priority.sit_in_course });
+    buckets.set(key, { items: uniqueSessions, sitInCourse });
   });
 
   return [...buckets.values()].flatMap((bucket) => {

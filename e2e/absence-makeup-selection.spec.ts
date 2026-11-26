@@ -154,7 +154,8 @@ test("explains timetable clashes, previous assignments, and a time chosen for an
 
 const blockedTimes = [
   { id: "outside-window", session: { ...boundarySitInSession, id: "outside-window", start_at: "2026-01-19T03:00:00Z", end_at: "2026-01-19T04:00:00Z" }, reason: "Outside the allowed make-up window", reason_code: "outside_cutoff" },
-  { id: "final-class", session: { ...boundarySitInSession, id: "final-class" }, reason: "Final class day", reason_code: "target_final_class" },
+  { session: { ...boundarySitInSession, id: "final-reading", teacher_name: "AJ. NICE" }, reason: "Final class day", reason_code: "target_final_class" },
+  { session: { ...boundarySitInSession, id: "final-writing", teacher_name: "AJ. RYU" }, reason: "Final class day", reason_code: "target_final_class" },
 ];
 
 for (const unavailableSessions of [[], blockedTimes]) {
@@ -162,7 +163,11 @@ for (const unavailableSessions of [[], blockedTimes]) {
     await installAbsenceRoutes(page, []);
     const math = sessionsInRange.subjects[0];
     await page.route("**/api/v1/absence-self-service/sessions**", (route) => route.fulfill({
-      json: { subjects: [{ ...math, sit_in: { ...math.sit_in, available_sessions: [], unavailable_sessions: unavailableSessions } }] },
+      json: { subjects: [{ ...math, sit_in: {
+        ...math.sit_in,
+        sit_in_course: { ...math.sit_in.sit_in_course, merge_group_id: "merged-target", merge_group_name: "Merged Mathematics" },
+        available_sessions: [], unavailable_sessions: unavailableSessions,
+      } }] },
     }));
     await completeToClasses(page);
     await page.getByRole("checkbox", { name: /mathematics/i }).check();
@@ -174,7 +179,8 @@ for (const unavailableSessions of [[], blockedTimes]) {
     await expect(dialog.getByRole("button", { name: "Confirm make-up class" })).toHaveCount(0);
     await expect(dialog.getByText("Choose a class, then confirm.")).toHaveCount(0);
     if (unavailableSessions.length) {
-      await expect(dialog.locator('input[value="final-class"]')).toBeDisabled();
+      await expect(dialog.locator("fieldset").getByRole("radio")).toHaveCount(1);
+      await expect(dialog.getByRole("radio", { name: /Merged Mathematics · AJ\. NICE, AJ\. RYU/ })).toBeDisabled();
       await expect(dialog.getByText("The final class can't be used as a make-up", { exact: true })).toBeVisible();
       await dialog.getByRole("radio", { name: "Monday 19 January — no times available" }).check();
       await expect(dialog.getByText("This date is outside the make-up period", { exact: true })).toBeVisible();

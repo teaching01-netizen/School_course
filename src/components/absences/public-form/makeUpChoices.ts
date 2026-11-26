@@ -1,6 +1,6 @@
 import type { SubjectSessions } from "@/types";
 import { formatDate } from "@/utils/date";
-import { combineSubjectGroups, groupByDay, mergedSessionValue, splitMergedSessionValue } from "@/features/absences/domain/sessionGrouping";
+import { combineSubjectGroups, groupByDay, mergedSessionValue, splitMergedSessionValue, uniqueValues } from "@/features/absences/domain/sessionGrouping";
 import { getAbsenceMessageCopy } from "@/features/absences/domain/absenceMessageCopy";
 import {
   blockedSitInSessionIds,
@@ -8,6 +8,7 @@ import {
   firstPriorityLevel,
   formatSitInDisplayDetails,
   formatSitInSessionConflictDescription,
+  groupSitInOptionsByTargetAndDay,
   groupWithSitInForMissedSession,
   hasServerPriorityReveal,
   nextPriorityLevel,
@@ -17,6 +18,7 @@ import {
   sitInOptionGroupsBySession,
   sitInOptionsByTargetAndSession,
   unavailableSessionsForMissedSessions,
+  type SitInAvailableSession,
   type SitInCourse,
   type SitInOptionGroup,
 } from "@/features/absences/domain/sitInResolution";
@@ -124,7 +126,7 @@ export function publicMakeUpChoices({
   const groupsByLevel = new Map<number, SubjectSessions>();
   const options = new Map<string, MakeUpOption>();
   const offeredSessionIds = new Set<string>();
-  const unavailableById = new Map<string, string>();
+  const unavailableById = new Map<string, { session: SitInAvailableSession; course: SitInCourse; message: string }>();
   const owners = currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, selections, sessionIds);
   const activeIds = new Set(sessions.filter((item) => selectedSubjectIds.includes(item.subject_id))
     .flatMap((item) => item.sessions.filter((session) => selectedSessionIds.has(session.id) && !session.already_absent).map((session) => session.id)));
@@ -160,12 +162,7 @@ export function publicMakeUpChoices({
       const message = item.reason_code === "sit_in_session_already_used" ? "Already assigned to another absence" : getAbsenceMessageCopy(item.reason_code);
       unavailableMessage = message;
       if (!item.session) continue;
-      unavailableById.set(item.session.id, message);
-      const display = normalizeSitInDisplayModel([item.session], course, label, sessions, { status: "unavailable", message });
-      if (!options.has(item.session.id)) options.set(item.session.id, {
-        value: item.session.id, label: display.className, details: formatSitInDisplayDetails(display), display,
-        disabled: true, description: message, priorityLevel: level,
-      });
+      unavailableById.set(item.session.id, { session: item.session, course, message });
     }
   }
 
@@ -177,18 +174,28 @@ export function publicMakeUpChoices({
       for (const candidate of candidates) if (candidate.conflict) blockedIds.add(candidate.id);
     }
   }
+  const blockReason = (ids: string[]) => uniqueValues(ids
+    .map((id) => blockedIds.has(id) ? "Already assigned to another absence" : unavailableById.get(id)?.message)
+    .filter((message): message is string => Boolean(message))).join(" · ") || undefined;
+  const offeredOptions = [...options.values()].map((option) => {
+    const description = blockReason(splitMergedSessionValue(option.value));
+    return description ? { ...option, disabled: true, description } : option;
+  });
+  const unavailableGroups = groupSitInOptionsByTargetAndDay([...unavailableById.values()]
+    .filter(({ session }) => !offeredSessionIds.has(session.id))
+    .map(({ session, course }) => ({ items: [session], sitInCourse: course })));
+  const unavailableOptions = unavailableGroups.map(({ items, sitInCourse }) => {
+    const message = blockReason(items.map((item) => item.id));
+    const display = normalizeSitInDisplayModel(items, sitInCourse, label, sessions, { status: "unavailable", message });
+    return {
+      value: mergedSessionValue(items), label: display.className, details: formatSitInDisplayDetails(display), display,
+      disabled: true, description: message,
+    };
+  });
   const latestLevel = levels[levels.length - 1];
   const latestGroup = groupsByLevel.get(latestLevel) ?? source;
   return {
-    options: [...options.values()].map((option) => {
-      const ids = splitMergedSessionValue(option.value);
-      const blocked = ids.some((id) => blockedIds.has(id));
-      const unavailable = ids.map((id) => unavailableById.get(id)).find(Boolean);
-      return blocked || unavailable ? {
-        ...option, disabled: true,
-        description: blocked ? "Already assigned to another absence" : unavailable,
-      } : option;
-    }),
+    options: [...offeredOptions, ...unavailableOptions],
     groupsByLevel, latestGroup, latestLevel,
     hasMore: hasServerPriorityReveal(latestGroup)
       ? Boolean(latestGroup.sit_in?.has_next_priority)
