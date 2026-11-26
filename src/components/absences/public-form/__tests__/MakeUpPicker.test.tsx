@@ -82,6 +82,9 @@ describe("MakeUpPicker", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Overlaps Chemistry");
     await user.click(trigger);
     const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Previous choice · unavailable")).toBeInTheDocument();
+    expect(within(dialog).getByText("Overlaps Chemistry")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("radio", { name: /saturday/i })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
     await user.click(within(dialog).getByRole("radio", { name: /sunday/i }));
     await user.click(within(dialog).getByRole("button", { name: "Confirm make-up class" }));
@@ -174,11 +177,13 @@ describe("MakeUpPicker", () => {
     expect(onChange).toHaveBeenCalledWith("");
   });
 
-  it("filters the listed times to the chosen day and marks a day with no available times", async () => {
+  it("shows only bookable times on a date and hides dates with no bookable times", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const withReason = [
-      { value: "day-17", label: "Calculus III", details: "AJ. Nice · 17 Jan · 09:00–10:00", display: onDay("2026-01-17", "17 Jan") },
+      dayOptions[0],
+      dayOptions[1],
+      { value: "blocked-17", label: "Blocked morning", display: onDay("2026-01-17", "17 Jan", "11:00", "12:00"), disabled: true },
       {
         value: "overlap-19", label: "Chemistry", details: "AJ. Nice · 19 Jan · 13:00–14:00", display: onDay("2026-01-19", "19 Jan", "13:00", "14:00"),
         disabled: true, description: "Overlaps another scheduled class", conflictDetails: "Chemistry Lab C3 · Mon, 19 Jan · 13:00–14:30",
@@ -188,18 +193,15 @@ describe("MakeUpPicker", () => {
     await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
     const dialog = screen.getByRole("dialog");
 
-    expect(within(dialog).getByRole("radiogroup", { name: "Make-up date" })).toBeInTheDocument();
-    expect(within(dialog).queryByRole("radio", { name: /19 Jan · 13:00–14:00/ })).not.toBeInTheDocument();
+    const dates = within(dialog).getByRole("radiogroup", { name: "Make-up date" });
+    expect(within(dates).getAllByRole("radio")).toHaveLength(2);
+    expect(within(dates).queryByRole("radio", { name: /19 January/ })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /17 Jan · 09:00–10:00/ })).toBeEnabled();
+    expect(within(dialog).queryByRole("radio", { name: /17 Jan · 11:00–12:00/ })).not.toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("radio", { name: "Monday 19 January — no times available" }));
-
-    expect(within(dialog).getByRole("radio", { name: /19 Jan · 13:00–14:00/ })).toBeDisabled();
-    expect(within(dialog).getByText("Overlaps another scheduled class")).toBeInTheDocument();
-    expect(within(dialog).getByText("Chemistry Lab C3 · Mon, 19 Jan · 13:00–14:30")).toBeInTheDocument();
-    expect(within(dialog).getByText(/No times available on Mon,\s+19\s+Jan\s+2026\./)).toBeInTheDocument();
-    expect(within(dialog).queryByText(/None of these times are available/)).not.toBeInTheDocument();
-    expect(within(dialog).getByText("Choose another date to see available classes.")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
+    await user.click(within(dates).getByRole("radio", { name: "Sunday 18 January" }));
+    expect(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ })).toBeEnabled();
+    expect(within(dialog).queryByRole("radio", { name: /17 Jan · 09:00–10:00/ })).not.toBeInTheDocument();
   });
 
   it("shows a single-day caption instead of chips when every time is on one day", async () => {
@@ -241,6 +243,13 @@ describe("MakeUpPicker", () => {
 
     await waitFor(() => expect(within(dialog).getByRole("radio", { name: "Sunday 18 January" })).toBeChecked());
     expect(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", { name: "Back to previous times" }));
+    expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("No make-up times available")).toHaveFocus();
+    expect(within(dialog).queryByText(/Contact Warwick/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "See other times" }));
+    expect(onLoad).toHaveBeenCalledOnce();
+    expect(within(dialog).getByRole("radio", { name: "Sunday 18 January" })).toBeChecked();
     await user.click(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ }));
     expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeEnabled();
   });
@@ -274,7 +283,8 @@ describe("MakeUpPicker", () => {
 
     rerender(<MakeUpPicker {...props} options={[{ ...blocked, value: "reading|writing" }]} moreTimes={{ hasMore: false, loading: false, onLoad }} />);
 
-    expect(within(dialog).getByText("No more times to show.")).toHaveFocus();
+    expect(within(dialog).getByText("No make-up times available")).toHaveFocus();
+    expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("offers See other times inside the sheet when the visible times are blocked", async () => {

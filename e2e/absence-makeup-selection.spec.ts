@@ -58,6 +58,13 @@ test("browses, retries, cancels, and confirms alternatives without losing the sa
   // is visible while the staged choice stays summarised above the list.
   await expect(dialog.getByRole("radio", { name: "Sunday 18 January" })).toBeChecked();
   await expect(dialog.locator('input[value="alternative"]')).toBeVisible();
+  await dialog.getByRole("button", { name: "Back to previous times" }).click();
+  await expect(dialog.locator(".absence-makeup-days__single")).toHaveText("Sat, 17 Jan 2026");
+  await expect(dialog.locator(`input[value="${boundarySitInSession.id}"]`)).toBeChecked();
+  await expect(dialog.locator('input[value="alternative"]')).toHaveCount(0);
+  await dialog.getByRole("button", { name: "See other times" }).click();
+  await expect(dialog.getByRole("radio", { name: "Sunday 18 January" })).toBeChecked();
+  await expect(dialog.locator('input[value="alternative"]')).toBeFocused();
   await expect(dialog.locator(".absence-makeup-current")).toContainText("17 Jan · 00:30–01:30");
   await expect(dialog.getByRole("radiogroup", { name: "Make-up date" }).getByRole("radio")).toHaveCount(2);
   await expect(dialog.locator(".absence-makeup-days__caption")).toHaveText("January 2026");
@@ -91,7 +98,7 @@ test("browses, retries, cancels, and confirms alternatives without losing the sa
   expect(submitted[0].items[0]).toMatchObject({ sit_in_course_id: "alternative-course", sit_in_session_ids: ["alternative"] });
 });
 
-test("explains timetable clashes, previous assignments, and a time chosen for another missed date", async ({ page }, testInfo) => {
+test("shows only bookable times and explains a previous choice that becomes unavailable", async ({ page }, testInfo) => {
   await installAbsenceRoutes(page, []);
   const math = sessionsInRange.subjects[0];
   const overlap = { ...boundarySitInSession, id: "overlap", start_at: "2026-01-18T03:00:00Z", end_at: "2026-01-18T04:00:00Z" };
@@ -112,22 +119,15 @@ test("explains timetable clashes, previous assignments, and a time chosen for an
   await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
   await selectAbsenceCheckbox(page, "session-second-missed");
   await page.locator('[id="sit-in-second-missed-field"] [data-make-up-trigger]').click();
-  // Each day keeps its own reason: the strip marks days with no free time.
-  await dialog.getByRole("radio", { name: "Saturday 17 January" }).check();
-  await expect(dialog.getByRole("radio", { name: /Chosen for another absence in this form/ })).toBeDisabled();
-  await dialog.getByRole("radio", { name: "Sunday 18 January" }).check();
-  await expect(dialog.getByRole("radio", { name: /Overlaps another scheduled class/ })).toBeDisabled();
-  await expect(dialog.getByText(/Chemistry — Sun, 18 Jan 2026 10:00-11:00/)).toBeVisible();
-  await dialog.getByRole("radio", { name: "Monday 19 January" }).check();
-  await expect(dialog.getByRole("radio", { name: /Already assigned to another absence/ })).toBeDisabled();
-  await expect(dialog.getByText(/English.*12 Jan/)).toBeVisible();
+  await expect(dialog.getByRole("radiogroup", { name: "Make-up date" })).toHaveCount(0);
+  await expect(dialog.locator(".absence-makeup-days__single")).toHaveText("Thu, 22 Jan 2026");
+  await expect(dialog.getByRole("radio")).toHaveCount(1);
   await expect(dialog.getByText("internal-absence-id")).toHaveCount(0);
   await expectAccessiblePage(page);
   await expectNoHorizontalOverflow(page);
-  const screenshot = testInfo.outputPath("make-up-conflicts.png");
+  const screenshot = testInfo.outputPath("make-up-available-only.png");
   await page.screenshot({ path: screenshot });
-  await testInfo.attach("make-up-conflicts", { path: screenshot, contentType: "image/png" });
-  await dialog.getByRole("radio", { name: "Thursday 22 January" }).check();
+  await testInfo.attach("make-up-available-only", { path: screenshot, contentType: "image/png" });
   await dialog.locator('input[value="free-time"]').check();
   await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
   await expectMakeUpValue(page, boundarySitInSession.id, "sit-in-missed-boundary");
@@ -142,8 +142,12 @@ test("explains timetable clashes, previous assignments, and a time chosen for an
   await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();
   await expectMakeUpValue(page, boundarySitInSession.id, "sit-in-missed-boundary");
   await expect(page.locator('[id="sit-in-missed-boundary"]')).toHaveAttribute("aria-invalid", "false");
-  await expectMakeUpValue(page, "free-time", "sit-in-second-missed");
   await expect(page.locator('[id="sit-in-second-missed"]')).toHaveAttribute("aria-invalid", "true");
+  await page.locator('[id="sit-in-second-missed"]').click();
+  await expect(dialog.getByText("Previous choice · unavailable")).toBeVisible();
+  await expect(dialog.getByText("Already assigned to another absence", { exact: true })).toBeVisible();
+  await expect(dialog.locator('input[value="free-time"]')).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: "Review absence" }).click();
   await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();
   await page.getByRole("checkbox", { name: /mathematics/i }).uncheck();
@@ -178,14 +182,9 @@ for (const unavailableSessions of [[], blockedTimes]) {
     await expect(dialog.getByRole("link", { name: "Call Warwick" })).toHaveAttribute("href", "tel:+6621234567");
     await expect(dialog.getByRole("button", { name: "Confirm make-up class" })).toHaveCount(0);
     await expect(dialog.getByText("Choose a class, then confirm.")).toHaveCount(0);
-    if (unavailableSessions.length) {
-      await expect(dialog.locator("fieldset").getByRole("radio")).toHaveCount(1);
-      await expect(dialog.getByRole("radio", { name: /Merged Mathematics · AJ\. NICE, AJ\. RYU/ })).toBeDisabled();
-      await expect(dialog.getByText("The final class can't be used as a make-up", { exact: true })).toBeVisible();
-      await dialog.getByRole("radio", { name: "Monday 19 January — no times available" }).check();
-      await expect(dialog.getByText("This date is outside the make-up period", { exact: true })).toBeVisible();
-      await expect(dialog.getByText("The final class can't be used as a make-up", { exact: true })).toHaveCount(0);
-    }
+    await expect(dialog.getByText("No make-up times available", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("radio")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "See other times" })).toHaveCount(0);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByLabel(/reason for absence/i).fill("Family appointment");
     await page.getByRole("button", { name: "Review absence" }).click();

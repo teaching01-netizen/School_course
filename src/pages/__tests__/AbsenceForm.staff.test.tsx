@@ -138,7 +138,7 @@ describe("AbsenceForm staff mode", () => {
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("staff-form-batch"))).toBe(false);
   });
 
-  it("appends alternatives, keeps a valid staff selection, and explains blocked classes", async () => {
+  it("appends available alternatives and preserves the selection in Staff preview", async () => {
     const user = userEvent.setup();
     const math = PUBLIC_FORM_SESSIONS.subjects[0];
     const firstCourse = { id: "target-1", code: "T1", name: "First course" };
@@ -167,11 +167,10 @@ describe("AbsenceForm staff mode", () => {
     await user.click(within(dialog).getByRole("button", { name: "See other times" }));
     await within(dialog).findByText("No more times to show.");
     const offered = await sheetChoices(user, dialog);
-    expect(offered).toEqual(expect.arrayContaining([
+    expect(offered).toEqual([
       expect.objectContaining({ value: first.id, disabled: false, checked: true }),
       expect.objectContaining({ value: next.id, disabled: false }),
-      expect.objectContaining({ value: final.id, disabled: true, name: expect.stringContaining("The final class can't be used as a make-up") }),
-    ]));
+    ]);
     await closeMakeUpSheet(user, dialog);
     expect(await makeUpValue(user)).toBe(first.id);
 

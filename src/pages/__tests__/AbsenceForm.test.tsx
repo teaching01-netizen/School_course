@@ -1225,7 +1225,7 @@ describe("AbsenceForm", () => {
     });
   }, 30000);
 
-  it("shows a used sit-in session as unavailable in the public form", async () => {
+  it("hides an already used sit-in session and offers support", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({
       student: { ...MOCK_STUDENT, subjects: [{ id: "subj-1", code: "MATH", name: "Mathematics" }] },
@@ -1257,7 +1257,7 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     const sheet = await openMakeUpSheet(user);
-    expect((await sheetChoices(user, sheet)).find((choice) => /already assigned to another absence/i.test(choice.name))?.disabled).toBe(true);
+    expect(within(sheet).queryByRole("radio")).not.toBeInTheDocument();
     expect(within(sheet).getByText(/A make-up class is required for this date/)).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
   }, 30000);
@@ -1298,7 +1298,11 @@ describe("AbsenceForm", () => {
     expect(await screen.findByText(/That sit-in session was just used for this student/)).toBeInTheDocument();
     expect(screen.getByText("Courses & classes")).toBeInTheDocument();
     expect((await makeUpTriggers())[0]).toHaveAttribute("aria-invalid", "true");
-    expect(await makeUpValue(user)).toBe("available-day-session");
+    const sheet = await openMakeUpSheet(user);
+    expect(within(sheet).getByText("Previous choice · unavailable")).toBeInTheDocument();
+    expect(within(sheet).getByText("Already assigned to another absence")).toBeInTheDocument();
+    expect(within(sheet).queryByRole("radio")).not.toBeInTheDocument();
+    await closeMakeUpSheet(user, sheet);
     await waitFor(() => {
       expect(mockApiJson.mock.calls.filter(([url]) => String(url).includes("/absence-self-service/sessions")).length).toBeGreaterThanOrEqual(2);
     });
@@ -1358,7 +1362,10 @@ describe("AbsenceForm", () => {
 
     expect(await screen.findByText(/A selected make-up class is no longer available. Your other choices are saved/i)).toBeInTheDocument();
     expect((await makeUpTriggers())[0]).toHaveAttribute("aria-invalid", "true");
-    expect(await makeUpValue(user)).toBe("available-day-session");
+    const sheet = await openMakeUpSheet(user);
+    expect(within(sheet).getByText("Previous choice · unavailable")).toBeInTheDocument();
+    expect(within(sheet).queryByRole("radio")).not.toBeInTheDocument();
+    await closeMakeUpSheet(user, sheet);
     expect(screen.getByText("Courses & classes")).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url, init]) => String(url).endsWith("/absences/batch") && init?.method === "POST")).toBe(false);
   }, 30000);
@@ -1511,7 +1518,7 @@ describe("AbsenceForm", () => {
     expect(await makeUpValue(user)).toBe("sit-r4r");
   }, 30000);
 
-  it("shows one clean unavailable card for a real SAT Verbal session and offers another time", async () => {
+  it("hides a past SAT Verbal session and offers another time", async () => {
     const user = userEvent.setup();
     const unavailableSession = {
       id: "sit-rank3-section1-sep23",
@@ -1627,8 +1634,8 @@ describe("AbsenceForm", () => {
     await user.click(await findSessionCheckbox());
 
     const sheet = await openMakeUpSheet(user);
-    const passed = (await sheetChoices(user, sheet)).find((choice) => /Wed, 23 Sep.*SAT Verbal Rank 3 Section 1 C3.*AJ. NICE.*This make-up time has passed/.test(choice.name));
-    expect(passed?.disabled).toBe(true);
+    expect(within(sheet).queryByRole("radio")).not.toBeInTheDocument();
+    expect(within(sheet).getByText("No make-up times available")).toBeInTheDocument();
     expect(within(sheet).queryByText("This same-number sit-in slot is before today/request date.")).not.toBeInTheDocument();
     await user.click(within(sheet).getByRole("button", { name: /see other times/i }));
     expect(await within(sheet).findByText("No more times to show.")).toBeInTheDocument();
@@ -1720,7 +1727,7 @@ describe("AbsenceForm", () => {
     expect(within(noTimesCard).queryByText("Raw backend policy wording must stay hidden.")).not.toBeInTheDocument();
   }, 30000);
 
-  it("shows the conflicting enrolled class and time for an unavailable Rank 4 option", async () => {
+  it("hides a Rank 4 option that overlaps an enrolled class", async () => {
     const user = userEvent.setup();
     renderAbsenceForm({
       student: {
@@ -1780,14 +1787,10 @@ describe("AbsenceForm", () => {
     await user.click(screen.getByRole("checkbox", { name: /sat verbal/i }));
     await user.click(await findSessionCheckbox());
 
-    await user.click(await screen.findByRole("button", { name: /choose a make-up class/i }));
-    const rankFourChoice = screen.getByRole("radio", { name: /SAT Verbal Reading Rank 4 C3/ });
-    expect(rankFourChoice).toBeDisabled();
-    expect(rankFourChoice).toHaveAccessibleName(/Sun, 27 Sep · 09:00–12:20/);
-    expect(rankFourChoice).toHaveAccessibleName(/AJ\. NICE/);
-    expect(screen.getByText("Overlaps another scheduled class")).toBeInTheDocument();
-    expect(screen.getByText("Chemistry (AJ. RYU) — Sun, 27 Sept 2026 10:00-11:30")).toBeInTheDocument();
-    expect(screen.queryByText(/submission will be blocked/i)).not.toBeInTheDocument();
+    const sheet = await openMakeUpSheet(user);
+    expect(within(sheet).queryByRole("radio")).not.toBeInTheDocument();
+    expect(within(sheet).getByText("No make-up times available")).toBeInTheDocument();
+    expect(within(sheet).getByRole("link", { name: "Call Warwick" })).toBeInTheDocument();
   }, 30000);
 
   it("shows every SAT Verbal target returned at the current priority level", async () => {
