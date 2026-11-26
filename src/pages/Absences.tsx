@@ -165,7 +165,9 @@ function groupInboxAbsences(items: ManagedAbsence[]): InboxAbsenceGroup[] {
   const groups = new Map<string, ManagedAbsence[]>();
   for (const item of items) {
     const mergeKey = item.merge_group_id?.trim() || item.merge_group_name?.trim();
-    const key = mergeKey ? `merge:${item.wcode.toLowerCase()}:${mergeKey}` : `absence:${item.id}`;
+    const key = mergeKey
+      ? `merge:${item.wcode.toLowerCase()}:${item.date_from}:${item.date_to}:${mergeKey}`
+      : `absence:${item.id}`;
     const group = groups.get(key);
     if (group) group.push(item);
     else groups.set(key, [item]);

@@ -3,11 +3,13 @@ package absenceshttp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -138,5 +140,126 @@ func TestAbsenceStatusUpdate_DoesNotSendAutomaticSuccessSMS(t *testing.T) {
 
 	if provider.sent != 0 {
 		t.Fatalf("automatic status notifications sent %d SMS messages, want 0", provider.sent)
+	}
+}
+
+func TestBatchSendSuccessSMS_PreservesMergedCourseMakeUps(t *testing.T) {
+	databaseURL := requireStaffTestDB(t)
+	migrateStaffUpOnce(t, databaseURL)
+	pool := newStaffPool(t, databaseURL)
+	t.Cleanup(pool.Close)
+	q := sqldb.New(pool)
+	wcode, subjectID, courseID, _, adminID := seedStaffCreateData(t, q, pool, "SMS")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	t.Cleanup(cancel)
+	const phone = "+66810000001"
+	if _, err := pool.Exec(ctx, "UPDATE students SET parent_phone = $1 WHERE wcode = $2", phone, wcode); err != nil {
+		t.Fatal(err)
+	}
+
+	mergeName := "Merged SAT Verbal " + wcode
+	var mergeID pgtype.UUID
+	if err := pool.QueryRow(ctx, "INSERT INTO course_merge_groups (name) VALUES ($1) RETURNING id", mergeName).Scan(&mergeID); err != nil {
+		t.Fatal(err)
+	}
+	var ids []uuid.UUID
+	for _, fixture := range []struct {
+		absenceDate string
+		targetName  string
+		startAt     string
+		endAt       string
+	}{
+		{"2026-11-28", "Rank 3 Section 1", "2026-12-02T17:00:00+07:00", "2026-12-02T18:40:00+07:00"},
+		{"2026-11-29", "Rank 4", "2026-12-01T17:00:00+07:00", "2026-12-01T20:20:00+07:00"},
+	} {
+		target, err := q.CourseCreate(ctx, sqldb.CourseCreateParams{Code: wcode + fixture.targetName, Name: fixture.targetName})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var id uuid.UUID
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO student_absences (wcode, subject_id, course_id, merge_group_id, date_from, date_to, status, sit_in_method, sit_in_course_id)
+			VALUES ($1, $2, $3, $4, $5, $5, 'special_approved', 'physical', $6)
+			RETURNING id
+		`, wcode, subjectID, courseID, mergeID, fixture.absenceDate, target.ID).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `
+			WITH make_up AS (
+				INSERT INTO sessions (course_id, teacher_id, start_at, end_at)
+				VALUES ($1, $2, $3, $4)
+				RETURNING id
+			)
+			INSERT INTO absence_sit_ins (absence_id, session_id) SELECT $5, id FROM make_up
+		`, target.ID, adminID, fixture.startAt, fixture.endAt, id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+
+	settings, err := q.AppSettingsGetWithPolicies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := q.AppSettingsUpdateAbsencePolicies(ctx, settings.AbsencePolicies); err != nil {
+			t.Error(err)
+		}
+	})
+	const template = `{"notifications":{"sms_special_approved_template":"{{absence_summary}}\n{{sit_in_summary}}"}}`
+	if err := q.AppSettingsUpdateAbsencePolicies(ctx, []byte(template)); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	Register(mux, httpdeps.Deps{
+		Auth: staffFakeAuth{user: auth.AuthenticatedUser{ID: adminID, Role: "Admin"}},
+		Q:    q, DB: pool, Log: slog.Default(), InstituteTZ: "Asia/Bangkok",
+	})
+	request := func(dryRun bool, wantStatus int) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"ids": ids, "dry_run": dryRun})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/absences/batch-send-success-sms", bytes.NewReader(body))
+		req.Header.Set("Idempotency-Key", uuid.NewString())
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != wantStatus {
+			t.Fatalf("dry_run=%v: status = %d, want %d: %s", dryRun, res.Code, wantStatus, res.Body)
+		}
+		return res
+	}
+
+	var preview struct {
+		Preview struct {
+			Phones  []string `json:"phones"`
+			Message string   `json:"message"`
+		} `json:"preview"`
+	}
+	if err := json.Unmarshal(request(true, http.StatusOK).Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if got := preview.Preview.Phones; len(got) != 1 || got[0] != phone {
+		t.Fatalf("preview recipients = %v, want [%s]", got, phone)
+	}
+	want := fmt.Sprintf("%s (28 Nov 2026); %s (29 Nov 2026)\nRank 3 Section 1 (2 Dec, 17:00 - 18:40); Rank 4 (1 Dec, 17:00 - 20:20)", mergeName, mergeName)
+	if got := preview.Preview.Message; got != want {
+		t.Fatalf("preview = %q, want %q", got, want)
+	}
+
+	var queued struct {
+		NotificationID string `json:"notification_id"`
+	}
+	if err := json.Unmarshal(request(false, http.StatusAccepted).Body.Bytes(), &queued); err != nil {
+		t.Fatal(err)
+	}
+	var message string
+	if err := pool.QueryRow(ctx, "SELECT payload->>'sms_message' FROM notification_outbox WHERE id = $1", queued.NotificationID).Scan(&message); err != nil {
+		t.Fatal(err)
+	}
+	if message != preview.Preview.Message {
+		t.Fatalf("queued message = %q, want preview %q", message, preview.Preview.Message)
 	}
 }

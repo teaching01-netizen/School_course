@@ -253,6 +253,50 @@ describe("Absence inbox", () => {
     expect(screen.queryByText("SAT Verbal Reading : Rank 3 (Section 1) C3")).not.toBeInTheDocument();
   });
 
+  it("shows different dates in a merged course as separately viewable and reviewable absences", async () => {
+    const [first, second] = PAGE_WITH_MERGED_COURSE.items;
+    const page = {
+      ...PAGE_WITH_MERGED_COURSE,
+      items: [
+        {
+          ...first,
+          date_from: "2026-11-28",
+          date_to: "2026-11-28",
+          sit_in_merge_group_name: "SAT Verbal Rank 3 Section 2 C3",
+        },
+        {
+          ...second,
+          date_from: "2026-11-29",
+          date_to: "2026-11-29",
+          sit_in_merge_group_name: "SAT Verbal Rank 4 C3",
+        },
+      ],
+    };
+    mockApiJson.mockImplementation(async (url: string) => {
+      if (url === "/api/v1/absences/batch-status") {
+        return { succeeded: [second.id], failed: [], total_processed: 1 };
+      }
+      return page;
+    });
+    renderPage();
+    const user = userEvent.setup();
+
+    const firstRow = await screen.findByRole("row", { name: /2026-11-28/ });
+    const secondRow = screen.getByRole("row", { name: /2026-11-29/ });
+    expect(within(firstRow).getByRole("link", { name: /open details/i })).toHaveAttribute("href", `/absences/${first.id}`);
+    expect(within(secondRow).getByRole("link", { name: /open details/i })).toHaveAttribute("href", `/absences/${second.id}`);
+    expect(within(firstRow).getByText("SAT Verbal Rank 3 Section 2 C3")).toBeInTheDocument();
+    expect(within(secondRow).getByText("SAT Verbal Rank 4 C3")).toBeInTheDocument();
+
+    await user.click(within(secondRow).getByRole("button", { name: "Mark Reviewed" }));
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/v1/absences/batch-status",
+      expect.objectContaining({
+        body: JSON.stringify({ ids: [second.id], status: "reviewed", expected_versions: { [second.id]: second.version } }),
+      }),
+    );
+  });
+
   it("makes unresolved session-change impact clear and filters to affected students", async () => {
     mockApiJson.mockResolvedValue(PAGE_WITH_SESSION_IMPACT);
     renderPage();

@@ -28,9 +28,10 @@ type successSMSItem struct {
 }
 
 type successSMSGroup struct {
-	row      sqldb.ManagedAbsenceRow
-	sessions []sqldb.ManagedAbsenceSession
-	missed   []sqldb.ManagedAbsenceSession
+	row         sqldb.ManagedAbsenceRow
+	sessions    []sqldb.ManagedAbsenceSession
+	absenceDate string
+	sitInClass  string
 }
 
 const (
@@ -80,24 +81,38 @@ func successSitInClass(row sqldb.ManagedAbsenceRow) string {
 	return textOr(row.SitInCourseName, textOr(row.SitInCourseCode, "Not assigned"))
 }
 
-func groupSuccessSMSItems(items []successSMSItem) []successSMSGroup {
+func groupSuccessSMSItems(items []successSMSItem, loc *time.Location) []successSMSGroup {
+	type groupKey struct {
+		student     string
+		mergeID     pgtype.UUID
+		absenceDate string
+		sitInMethod string
+		sitInClass  string
+	}
 	groups := make([]successSMSGroup, 0, len(items))
-	groupIndexes := make(map[string]int, len(items))
-	for index, item := range items {
-		key := fmt.Sprintf("absence:%d", index)
+	groupIndexes := make(map[groupKey]int, len(items))
+	for _, item := range items {
+		absenceDate := successAbsenceDate(item.row, item.missed, loc)
+		sitInClass := successSitInClass(item.row)
+		groupIndex := len(groups)
 		if item.row.MergeGroupID.Valid {
-			if mergeGroupID, err := sUUIDString(item.row.MergeGroupID); err == nil {
-				key = "merge:" + strings.ToLower(item.row.Wcode) + ":" + mergeGroupID
+			key := groupKey{
+				student:     strings.ToLower(item.row.Wcode),
+				mergeID:     item.row.MergeGroupID,
+				absenceDate: absenceDate,
+				sitInMethod: textOr(item.row.SitInMethod, ""),
+				sitInClass:  sitInClass,
+			}
+			if index, ok := groupIndexes[key]; ok {
+				groupIndex = index
+			} else {
+				groupIndexes[key] = groupIndex
 			}
 		}
-		groupIndex, exists := groupIndexes[key]
-		if !exists {
-			groupIndexes[key] = len(groups)
-			groups = append(groups, successSMSGroup{row: item.row})
-			groupIndex = len(groups) - 1
+		if groupIndex == len(groups) {
+			groups = append(groups, successSMSGroup{row: item.row, absenceDate: absenceDate, sitInClass: sitInClass})
 		}
 		groups[groupIndex].sessions = append(groups[groupIndex].sessions, item.sessions...)
-		groups[groupIndex].missed = append(groups[groupIndex].missed, item.missed...)
 	}
 	return groups
 }
@@ -119,7 +134,7 @@ func successSMSPlaceholderValues(items []successSMSItem, loc *time.Location) map
 		}
 	}
 
-	groups := groupSuccessSMSItems(items)
+	groups := groupSuccessSMSItems(items, loc)
 	classNames := make([]string, 0, len(groups))
 	absenceDates := make([]string, 0, len(groups))
 	sitInClasses := make([]string, 0, len(groups))
@@ -129,16 +144,14 @@ func successSMSPlaceholderValues(items []successSMSItem, loc *time.Location) map
 
 	for _, group := range groups {
 		className := textOr(group.row.MergeGroupName, textOr(group.row.SubjectName, group.row.CourseName))
-		absenceDate := successAbsenceDate(group.row, group.missed, loc)
-		sitInClass := successSitInClass(group.row)
 		sitInDateTime := successSitInDateTime(group.sessions, loc)
 
 		classNames = append(classNames, className)
-		absenceDates = append(absenceDates, absenceDate)
-		sitInClasses = append(sitInClasses, sitInClass)
+		absenceDates = append(absenceDates, group.absenceDate)
+		sitInClasses = append(sitInClasses, group.sitInClass)
 		sitInDateTimes = append(sitInDateTimes, sitInDateTime)
-		absenceSummaries = append(absenceSummaries, successAbsenceSummary(className, absenceDate))
-		sitInSummaries = append(sitInSummaries, successSitInSummary(group.row, sitInClass, sitInDateTime))
+		absenceSummaries = append(absenceSummaries, successAbsenceSummary(className, group.absenceDate))
+		sitInSummaries = append(sitInSummaries, successSitInSummary(group.row, group.sitInClass, sitInDateTime))
 	}
 
 	return map[string]string{
