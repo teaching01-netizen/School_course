@@ -14,7 +14,10 @@ test("browses, retries, cancels, and confirms alternatives without losing the sa
   } };
   const alternative = { ...boundarySitInSession, id: "alternative", course_id: "alternative-course", start_at: "2026-01-18T03:00:00Z", end_at: "2026-01-18T04:00:00Z" };
   const next = { ...math, sit_in: { sit_in_method: "physical", current_priority_level: 3, has_next_priority: false,
-    priorities: [{ level: 3, label: "Third", sit_in_course: { id: "alternative-course", code: "ALT", name: "Alternative Mathematics" }, available_sessions: [alternative] }],
+    priorities: [
+      { level: 3, label: "Third", sit_in_course: { id: "alternative-course", code: "ALT", name: "Alternative Mathematics" }, available_sessions: [alternative] },
+      { level: 3, label: "Third", sit_in_course: math.sit_in.sit_in_course, unavailable_sessions: [{ id: boundarySitInSession.id, session: boundarySitInSession, reason: "Already offered", reason_code: "already_offered" }] },
+    ],
   } };
   let failMore = true;
   await page.route("**/api/v1/absence-self-service/sessions**", (route) => {
@@ -75,6 +78,8 @@ test("browses, retries, cancels, and confirms alternatives without losing the sa
   await trigger.click();
   await expect(dialog.getByRole("radio", { name: "Saturday 17 January" })).toBeChecked();
   await expect(dialog.locator(`input[value="${boundarySitInSession.id}"]`)).toBeChecked();
+  await expect(dialog.locator(`input[value="${boundarySitInSession.id}"]`)).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Confirm make-up class" })).toBeEnabled();
   await dialog.getByRole("radio", { name: "Sunday 18 January" }).check();
   await dialog.locator('input[value="alternative"]').check();
   await dialog.getByRole("button", { name: "Confirm make-up class" }).click();
@@ -147,21 +152,38 @@ test("explains timetable clashes, previous assignments, and a time chosen for an
   await expect(page.getByText("Select at least one class you will miss.")).toBeVisible();
 });
 
-test("keeps an empty physical make-up picker actionable and explains the required next step", async ({ page }) => {
-  await installAbsenceRoutes(page, []);
-  const math = sessionsInRange.subjects[0];
-  await page.route("**/api/v1/absence-self-service/sessions**", (route) => route.fulfill({ json: { subjects: [{ ...math, sit_in: { ...math.sit_in, available_sessions: [] } }] } }));
-  await completeToClasses(page);
-  await page.getByRole("checkbox", { name: /mathematics/i }).check();
-  await selectAbsenceCheckbox(page, "session-missed-boundary");
-  await page.getByRole("button", { name: "Choose a make-up class" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(/A make-up class is required for this date/)).toBeVisible();
-  await expect(dialog.getByRole("link", { name: "Call Warwick" })).toHaveAttribute("href", "tel:+6621234567");
-  await expect(dialog.getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByLabel(/reason for absence/i).fill("Family appointment");
-  await page.getByRole("button", { name: "Review absence" }).click();
-  await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Choose a make-up class" })).toBeFocused();
-});
+const blockedTimes = [
+  { id: "outside-window", session: { ...boundarySitInSession, id: "outside-window", start_at: "2026-01-19T03:00:00Z", end_at: "2026-01-19T04:00:00Z" }, reason: "Outside the allowed make-up window", reason_code: "outside_cutoff" },
+  { id: "final-class", session: { ...boundarySitInSession, id: "final-class" }, reason: "Final class day", reason_code: "target_final_class" },
+];
+
+for (const unavailableSessions of [[], blockedTimes]) {
+  test(`offers Warwick support when physical make-up times are ${unavailableSessions.length ? "all blocked" : "empty"}`, async ({ page }) => {
+    await installAbsenceRoutes(page, []);
+    const math = sessionsInRange.subjects[0];
+    await page.route("**/api/v1/absence-self-service/sessions**", (route) => route.fulfill({
+      json: { subjects: [{ ...math, sit_in: { ...math.sit_in, available_sessions: [], unavailable_sessions: unavailableSessions } }] },
+    }));
+    await completeToClasses(page);
+    await page.getByRole("checkbox", { name: /mathematics/i }).check();
+    await selectAbsenceCheckbox(page, "session-missed-boundary");
+    await page.getByRole("button", { name: "Choose a make-up class" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("A make-up class is required for this date. Contact Warwick for help before continuing.", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "Call Warwick" })).toHaveAttribute("href", "tel:+6621234567");
+    await expect(dialog.getByRole("button", { name: "Confirm make-up class" })).toHaveCount(0);
+    await expect(dialog.getByText("Choose a class, then confirm.")).toHaveCount(0);
+    if (unavailableSessions.length) {
+      await expect(dialog.locator('input[value="final-class"]')).toBeDisabled();
+      await expect(dialog.getByText("The final class can't be used as a make-up", { exact: true })).toBeVisible();
+      await dialog.getByRole("radio", { name: "Monday 19 January — no times available" }).check();
+      await expect(dialog.getByText("This date is outside the make-up period", { exact: true })).toBeVisible();
+      await expect(dialog.getByText("The final class can't be used as a make-up", { exact: true })).toHaveCount(0);
+    }
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByLabel(/reason for absence/i).fill("Family appointment");
+    await page.getByRole("button", { name: "Review absence" }).click();
+    await expect(page.getByRole("heading", { name: "Courses & classes" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Choose a make-up class" })).toBeFocused();
+  });
+}

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AbsenceForm from "../AbsenceForm";
 import { renderWithProviders } from "./helpers";
 import { PUBLIC_FORM_CONFIG, PUBLIC_FORM_SESSIONS, MANUAL_EMAIL_STUDENT } from "./fixtures/absenceFormFixtures";
+import { chooseMakeUp, closeMakeUpSheet, makeUpValue, openMakeUpSheet, sheetChoices } from "./fixtures/makeUpSheet";
+import type { StudentLookupResponse, SubjectSessions } from "@/types";
 
 const mockApiJson = vi.hoisted(() => vi.fn());
 
@@ -46,13 +48,16 @@ const STAFF_SUBMISSION = {
   }],
 };
 
-function installStaffRoutes(submission: unknown = { ids: [STAFF_SUBMISSION.id], items: [STAFF_SUBMISSION] }) {
+function installStaffRoutes({ lookup = MANUAL_EMAIL_STUDENT, subjects = () => PUBLIC_FORM_SESSIONS.subjects }: {
+  lookup?: StudentLookupResponse;
+  subjects?: (path: string) => SubjectSessions[];
+} = {}) {
   mockApiJson.mockImplementation(async (url: string) => {
     const path = String(url);
     if (path.includes("absence-form-config")) return PUBLIC_FORM_CONFIG;
-    if (path.includes("/admin/absences/student-lookup")) return MANUAL_EMAIL_STUDENT;
-    if (path.includes("/absences/sessions-in-range")) return PUBLIC_FORM_SESSIONS;
-    if (path.includes("/absences/staff-form-batch")) return submission;
+    if (path.includes("/admin/absences/student-lookup")) return lookup;
+    if (path.includes("/absences/sessions-in-range")) return { subjects: subjects(path) };
+    if (path.includes("/absences/staff-form-batch")) return { ids: [STAFF_SUBMISSION.id], items: [STAFF_SUBMISSION] };
     throw new Error(`Unmocked API call: ${path}`);
   });
 }
@@ -131,6 +136,77 @@ describe("AbsenceForm staff mode", () => {
     expect(await screen.findByText("Please tell us why you'll be away.", { selector: '[role="alert"]' })).toBeInTheDocument();
     expect(screen.getByText("Courses & classes")).toBeInTheDocument();
     expect(mockApiJson.mock.calls.some(([url]) => String(url).includes("staff-form-batch"))).toBe(false);
+  });
+
+  it("appends alternatives, keeps a valid staff selection, and explains blocked classes", async () => {
+    const user = userEvent.setup();
+    const math = PUBLIC_FORM_SESSIONS.subjects[0];
+    const firstCourse = { id: "target-1", code: "T1", name: "First course" };
+    const nextCourse = { id: "target-2", code: "T2", name: "Second course" };
+    const first = { id: "first", course_id: firstCourse.id, start_at: "2026-08-06T02:00:00Z", end_at: "2026-08-06T03:30:00Z" };
+    const next = { id: "next", course_id: nextCourse.id, start_at: "2026-08-07T02:00:00Z", end_at: "2026-08-07T03:30:00Z" };
+    const final = { ...next, id: "final", start_at: "2026-08-08T02:00:00Z", end_at: "2026-08-08T03:30:00Z" };
+    const initialSitIn: SubjectSessions["sit_in"] = {
+      sit_in_method: "physical", current_priority_level: 1, has_next_priority: true,
+      priorities: [{ level: 1, label: "First", sit_in_course: firstCourse, available_sessions: [first] }],
+    };
+    const revealedSitIn: SubjectSessions["sit_in"] = {
+      sit_in_method: "physical", current_priority_level: 2, has_next_priority: false,
+      priorities: [
+        { level: 2, label: "Second", sit_in_course: firstCourse, unavailable_sessions: [{ session: first, reason: "Already offered", reason_code: "already_offered" }] },
+        { level: 2, label: "Second", sit_in_course: nextCourse, available_sessions: [next], unavailable_sessions: [{ session: final, reason: "Final class", reason_code: "target_final_class" }] },
+      ],
+    };
+    installStaffRoutes({ subjects: (path) => [{ ...math, sit_in: path.includes("sat_verbal_after_priority=1") ? revealedSitIn : initialSitIn }] });
+    renderWithProviders(<AbsenceForm mode="staff" />);
+
+    await searchStaffStudent(user);
+    await selectStaffClass(user);
+    await chooseMakeUp(user, first.id);
+    const dialog = await openMakeUpSheet(user);
+    await user.click(within(dialog).getByRole("button", { name: "See other times" }));
+    await within(dialog).findByText("No more times to show.");
+    const offered = await sheetChoices(user, dialog);
+    expect(offered).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: first.id, disabled: false, checked: true }),
+      expect.objectContaining({ value: next.id, disabled: false }),
+      expect.objectContaining({ value: final.id, disabled: true, name: expect.stringContaining("The final class can't be used as a make-up") }),
+    ]));
+    await closeMakeUpSheet(user, dialog);
+    expect(await makeUpValue(user)).toBe(first.id);
+
+    await chooseMakeUp(user, next.id);
+    await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Medical appointment");
+    await user.click(screen.getByRole("button", { name: /review absence/i }));
+    await screen.findByRole("heading", { name: /review your absence/i });
+    expect(screen.getByText(/Second course/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^submit absence$/i }));
+    await screen.findByRole("heading", { name: "Absence recorded" });
+    const submission = mockApiJson.mock.calls.find(([url]) => String(url).endsWith("/staff-form-batch"));
+    expect(JSON.parse(String(submission?.[1]?.body)).items).toEqual([expect.objectContaining({ sit_in_course_id: nextCourse.id, sit_in_session_ids: [next.id] })]);
+  }, 30000);
+
+  it("counts a date shared by two merged courses once in the staff summary", async () => {
+    const user = userEvent.setup();
+    const merge = { merge_group_id: "merged-course", merge_group_name: "Mathematics and Physics" };
+    const math = PUBLIC_FORM_SESSIONS.subjects[0];
+    const physics = PUBLIC_FORM_SESSIONS.subjects[1];
+    installStaffRoutes({
+      lookup: { ...MANUAL_EMAIL_STUDENT, subjects: [
+        { id: math.subject_id, code: math.subject_code, name: math.subject_name, ...merge },
+        { id: physics.subject_id, code: physics.subject_code, name: physics.subject_name, ...merge },
+      ] },
+      subjects: () => [
+        { ...math, ...merge },
+        { ...physics, ...merge, sessions: [{ ...math.sessions[0], id: "physics-on-same-day" }] },
+      ],
+    });
+    renderWithProviders(<AbsenceForm mode="staff" />);
+
+    await searchStaffStudent(user);
+    await selectStaffClass(user);
+    const summary = screen.getByRole("button", { name: /mathematics and physics.*selected/i });
+    expect(summary).toHaveTextContent("1 class day selected");
   });
 
   it("stores staff drafts under a separate session key", async () => {

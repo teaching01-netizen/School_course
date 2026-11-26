@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronDown, ChevronLeft, LoaderCircle } from "lucide-react";
+import { ChevronDown, LoaderCircle } from "lucide-react";
 import clsx from "clsx";
 import { newIdempotencyKey, ApiRequestError } from "@/api/client";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
@@ -16,7 +16,7 @@ import SubjectRow from "@/components/absences/public-form/SubjectRow";
 import ReasonField from "@/components/absences/public-form/ReasonField";
 import SessionDayCard from "@/components/absences/public-form/SessionDayCard";
 import MakeUpPicker from "@/components/absences/public-form/MakeUpPicker";
-import { currentSitInOwners, makeUpPickerOptions, publicMakeUpChoicesBySession, type PublicMakeUpChoices } from "@/components/absences/public-form/makeUpChoices";
+import { publicMakeUpChoicesBySession } from "@/components/absences/public-form/makeUpChoices";
 import FormAlert from "@/components/absences/public-form/FormAlert";
 import { useToast } from "@/hooks/useToast";
 import { useAbsenceDraft } from "@/features/absences/hooks/useAbsenceDraft";
@@ -53,7 +53,6 @@ import {
   combineSubjectPickerEntries,
   countSelectedAbsenceDays,
   countSelectedAbsenceDaysForScope,
-  countSelectedAbsenceDaysForGroup,
   groupByDay,
   splitMergedSessionValue,
   uniqueValues,
@@ -62,25 +61,18 @@ import {
 import { buildSubmissionPayloads as buildAbsenceSubmissionPayloads, duplicateSitInSessionIds } from "@/features/absences/domain/submissionPayload";
 import {
   availableSessionsForMissedSession,
-  availableSessionsForMissedSessions,
   firstPriorityLevel,
   getReviewSitInLabel,
   appendTeacher,
-  normalizeSitInDisplayModel,
-  formatSitInDisplayDetails,
   formatSitInSubmissionConflictDetails,
   blockedSitInSessionIds,
-  sitInOptionGroupsBySession,
-  sitInOptionsByTargetAndSession,
   groupWithSitInForMissedSession,
   hasPriorityLevel,
   hasServerPriorityReveal,
   nextPriorityLevel,
-  previousPriorityLevel,
   prioritiesForLevel,
   rootAvailableSessionsForMissedSessions,
   sitInForMissedSession,
-  unavailableSessionsForMissedSession,
 } from "@/features/absences/domain/sitInResolution";
 import {
   formatSubmittedAbsenceSummary,
@@ -313,15 +305,15 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
   // even though it spans two subjects, and selecting it selects both.
   const pickerEntries = useMemo(() => combineSubjectPickerEntries(verifiedSubjects), [verifiedSubjects]);
 
-  const publicChoicesBySession = useMemo(() => isStaff ? new Map<string, PublicMakeUpChoices>() : publicMakeUpChoicesBySession({
+  const makeUpChoicesBySession = useMemo(() => publicMakeUpChoicesBySession({
     sessions, selectedSubjectIds, selectedSessionIds, selections: sitInSelections,
     priorityLevels: sitInPriorityLevels, priorityHistory: sitInPriorityHistory,
     blockedSessionIds: rejectedMakeUpSessionIds,
-  }), [isStaff, selectedSessionIds, sitInPriorityHistory, sitInPriorityLevels, sessions, selectedSubjectIds, sitInSelections, rejectedMakeUpSessionIds]);
-  const invalidMakeUpIds = useMemo(() => new Set([...publicChoicesBySession].filter(([id, choices]) => {
+  }), [selectedSessionIds, sitInPriorityHistory, sitInPriorityLevels, sessions, selectedSubjectIds, sitInSelections, rejectedMakeUpSessionIds]);
+  const invalidMakeUpIds = useMemo(() => new Set([...makeUpChoicesBySession].filter(([id, choices]) => {
     const selected = sitInSelections[id];
     return selected && !choices.options.some((option) => option.value === selected && !option.disabled);
-  }).map(([id]) => id)), [publicChoicesBySession, sitInSelections]);
+  }).map(([id]) => id)), [makeUpChoicesBySession, sitInSelections]);
 
   const missingSitIn = useMemo(() => {
     for (const group of sessions) {
@@ -706,8 +698,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     });
   };
 
-  const handleNotAvailable = async (group: SubjectSessions, sessionId: string, browsingLevel?: number) => {
-    const currentLevel = browsingLevel ?? (sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group));
+  const handleRevealMakeUpTimes = async (group: SubjectSessions, sessionId: string, currentLevel: number) => {
     const requestKey = `${lookupRequestId.current}:${sessionId}`;
     if (revealRequestsRef.current.has(requestKey)) return;
     const requestId = lookupRequestId.current;
@@ -715,7 +706,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     if (lookup && hasServerPriorityReveal(group)) {
       revealRequestsRef.current.add(requestKey);
       setRevealingPrioritySessionIds((current) => new Set(current).add(sessionId));
-      if (isStaff) setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
       setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group } }));
       try {
         const data = await loadFormSessions(
@@ -731,7 +721,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         if (updatedLevel <= currentLevel && updatedSessionGroup.sit_in?.has_next_priority) {
           throw new Error("No additional make-up times were returned.");
         }
-        if (isStaff) setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: updatedLevel }));
         setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [updatedLevel]: updatedSessionGroup } }));
       } catch (error) {
         if (requestId !== lookupRequestId.current) return;
@@ -739,15 +728,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
           handleStudentSessionExpired();
           return;
         }
-        if (isStaff) {
-          const message = error instanceof Error ? error.message : "Couldn't load other make-up times";
-          setPageError(message);
-          // The sheet is where staff asked for more times, so the retry reason
-          // belongs there too, not only in a page alert behind the dialog.
-          setSitInPriorityErrors((current) => ({ ...current, [sessionId]: `${message.replace(/\.$/, "")}. Try again.` }));
-        } else {
-          setSitInPriorityErrors((current) => ({ ...current, [sessionId]: "Couldn’t load more times. Your selections haven’t changed. Try again." }));
-        }
+        setSitInPriorityErrors((current) => ({ ...current, [sessionId]: "Couldn’t load more times. Your selections haven’t changed. Try again." }));
       } finally {
         revealRequestsRef.current.delete(requestKey);
         if (requestId === lookupRequestId.current) setRevealingPrioritySessionIds((current) => { const n = new Set(current); n.delete(sessionId); return n; });
@@ -756,29 +737,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
     }
     const nextLevel = nextPriorityLevel(group, currentLevel);
     if (nextLevel == null) return;
-    if (isStaff) {
-      setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: nextLevel }));
-      setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
-    } else {
-      setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group, [nextLevel]: group } }));
-    }
-  };
-
-  const handlePreviousPriority = (group: SubjectSessions, sessionId: string) => {
-    const currentLevel = sitInPriorityLevels[sessionId] || group.sit_in?.current_priority_level || firstPriorityLevel(group);
-    if (hasServerPriorityReveal(group)) {
-      const history = sitInPriorityHistory[sessionId] ?? {};
-      const previousLevel = Object.keys(history).map(Number).filter((level) => level < currentLevel).sort((a, b) => b - a)[0];
-      const previousGroup = previousLevel !== undefined ? history[previousLevel] : undefined;
-      if (!previousGroup) return;
-      setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: previousLevel }));
-      setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
-      return;
-    }
-    const previousLevel = previousPriorityLevel(group, currentLevel);
-    if (previousLevel == null) return;
-    setSitInPriorityLevels((prev) => ({ ...prev, [sessionId]: previousLevel }));
-    setSitInSelections((prev) => { const n = { ...prev }; delete n[sessionId]; return n; });
+    setSitInPriorityHistory((prev) => ({ ...prev, [sessionId]: { ...(prev[sessionId] ?? {}), [currentLevel]: group, [nextLevel]: group } }));
   };
 
   const goToStep = useCallback((next: StepIndex, focusId?: string) => {
@@ -919,23 +878,21 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         const latest = await loadFormSessions(lookup.wcode);
         submissionSessions = latest.subjects;
         setSessions(submissionSessions);
-        if (!isStaff) {
-          const freshChoices = publicMakeUpChoicesBySession({
-            sessions: submissionSessions, selectedSubjectIds, selectedSessionIds, selections: sitInSelections,
-            priorityLevels: sitInPriorityLevels, priorityHistory: sitInPriorityHistory,
-            blockedSessionIds: rejectedMakeUpSessionIds,
-          });
-          const invalidChoice = [...freshChoices].find(([id, choices]) => {
-            const value = sitInSelections[id];
-            return value && !choices.options.some((option) => option.value === value && !option.disabled);
-          });
-          if (invalidChoice) {
-            const owner = submissionSessions.find((group) => group.sessions.some((session) => session.id === invalidChoice[0]));
-            setExpandedSubjectId(owner?.subject_id ?? selectedSubjectIds[0] ?? null);
-            setStep(classesStep);
-            setSubmissionError("A selected make-up class is no longer available. Your other choices are saved. Choose another time for the highlighted date.");
-            return;
-          }
+        const freshChoices = publicMakeUpChoicesBySession({
+          sessions: submissionSessions, selectedSubjectIds, selectedSessionIds, selections: sitInSelections,
+          priorityLevels: sitInPriorityLevels, priorityHistory: sitInPriorityHistory,
+          blockedSessionIds: rejectedMakeUpSessionIds,
+        });
+        const invalidChoice = [...freshChoices].find(([id, choices]) => {
+          const value = sitInSelections[id];
+          return value && !choices.options.some((option) => option.value === value && !option.disabled);
+        });
+        if (invalidChoice) {
+          const owner = submissionSessions.find((group) => group.sessions.some((session) => session.id === invalidChoice[0]));
+          setExpandedSubjectId(owner?.subject_id ?? selectedSubjectIds[0] ?? null);
+          setStep(classesStep);
+          setSubmissionError("A selected make-up class is no longer available. Your other choices are saved. Choose another time for the highlighted date.");
+          return;
         }
         const blockedSessionIds = blockedSitInSessionIds(submissionSessions);
         const selectedSitInSessionIds = new Set(
@@ -944,11 +901,6 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
         const staleSessionIds = [...selectedSitInSessionIds].filter((id) => blockedSessionIds.has(id));
         if (staleSessionIds.length > 0) {
           draftRef.current = null;
-          if (isStaff) {
-            setSitInSelections({});
-            setSitInPriorityLevels({});
-            setSitInPriorityHistory({});
-          }
           setStep(classesStep);
           setSubmissionError("A selected sit-in session is no longer available. We refreshed the available sessions; choose another session and submit again.");
           return;
@@ -1029,20 +981,14 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
       }
       if (error instanceof ApiRequestError && error.code === "sit_in_session_already_used") {
         draftRef.current = null;
-        if (isStaff) {
-          setSitInSelections({});
-          setSitInPriorityLevels({});
-          setSitInPriorityHistory({});
-        } else {
-          const details = error.details;
-          const reportedIds = details && typeof details === "object" && "session_ids" in details && Array.isArray(details.session_ids)
-            ? details.session_ids.filter((id): id is string => typeof id === "string") : [];
-          const chosenValues = [...new Set([...publicChoicesBySession.keys()].map((id) => sitInSelections[id]).filter(Boolean))];
-          const rejectedIds = new Set(reportedIds.length ? reportedIds : chosenValues.length === 1 ? splitMergedSessionValue(chosenValues[0]) : []);
-          setRejectedMakeUpSessionIds((current) => new Set([...current, ...rejectedIds]));
-          const affected = selectedGroups.find((group) => group.sessions.some((session) => splitMergedSessionValue(sitInSelections[session.id]).some((id) => rejectedIds.has(id))));
-          if (affected) setExpandedSubjectId(affected.subject_id);
-        }
+        const details = error.details;
+        const reportedIds = details && typeof details === "object" && "session_ids" in details && Array.isArray(details.session_ids)
+          ? details.session_ids.filter((id): id is string => typeof id === "string") : [];
+        const chosenValues = [...new Set([...makeUpChoicesBySession.keys()].map((id) => sitInSelections[id]).filter(Boolean))];
+        const rejectedIds = new Set(reportedIds.length ? reportedIds : chosenValues.length === 1 ? splitMergedSessionValue(chosenValues[0]) : []);
+        setRejectedMakeUpSessionIds((current) => new Set([...current, ...rejectedIds]));
+        const affected = selectedGroups.find((group) => group.sessions.some((session) => splitMergedSessionValue(sitInSelections[session.id]).some((id) => rejectedIds.has(id))));
+        if (affected) setExpandedSubjectId(affected.subject_id);
         setSessionsReloadToken((current) => current + 1);
         setStep(classesStep);
         setSubmissionError(formatSitInSubmissionConflictDetails(error.details) ?? "That sit-in session was just used for this student. We refreshed the available sessions; choose another session and submit again.");
@@ -1460,8 +1406,7 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                         </div>
                         {isStaff ? <div className="mb-4 space-y-2 sm:hidden" aria-label="Selected classes">
                           {selectedBlocks.map((block) => {
-                            const selectedForBlock = block.groups
-                              .reduce((count, group) => count + countSelectedAbsenceDaysForGroup(group, selectedSessionIds), 0);
+                            const selectedForBlock = selectedDaysByScope.get(block.key) ?? 0;
                             const expanded = expandedSubjectId !== null && block.subjectIds.includes(expandedSubjectId);
                             return (
                               <button
@@ -1561,20 +1506,8 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                           ? `${quotaGroup.used_absence_days} absence day${quotaGroup.used_absence_days !== 1 ? "s" : ""} used, max ${quotaGroup.maximum_absence_days ?? Math.round((quotaGroup.total_course_days ?? 0) / 5)}`
                                           : undefined;
                                         const currentSitIn = sitInSelections[session.id] || "";
-                                        const sessionGroup = groupWithSitInForMissedSession(ownerGroup, session.id);
-                                      const baseSitIn = sessionGroup.sit_in;
-                                      const baseLevel = baseSitIn?.current_priority_level || firstPriorityLevel(sessionGroup);
-                                      const requestedLevel = baseSitIn
-                                        ? sitInPriorityLevels[session.id] || baseLevel
-                                        : firstPriorityLevel(sessionGroup);
-                                      const requestedPriorityGroup = sitInPriorityHistory[session.id]?.[requestedLevel] ?? sessionGroup;
-                                      const currentLevel = hasPriorityLevel(requestedPriorityGroup, requestedLevel)
-                                        ? requestedLevel : baseLevel;
-                                      const priorityGroup = sitInPriorityHistory[session.id]?.[currentLevel] ?? sessionGroup;
-                                      const sitIn = priorityGroup.sit_in;
-                                      const sitInAvailable = rootAvailableSessionsForMissedSessions(sitIn, sessionIds);
-                                      const hasPriorities = Boolean(sitIn?.priorities && sitIn.priorities.length > 0);
-                                      const currentPriorities = hasPriorities ? prioritiesForLevel(priorityGroup, currentLevel) : [];
+                                        const sitIn = sitInForMissedSession(ownerGroup, session.id);
+                                        const choices = makeUpChoicesBySession.get(session.id);
 
                                       return (
                                         <SessionDayCard
@@ -1588,11 +1521,9 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                           onToggle={() => handleSessionGroupToggle(ownerGroup, sessionIds)}
                                           reduceMotion={reduceMotion}
                                         >
-                                              {sitIn && sitIn.sit_in_method === "physical" ? (
-                                                !isStaff ? (() => {
-                                                  const choices = publicChoicesBySession.get(session.id);
-                                                  if (!choices) return null;
-                                                  return <MakeUpPicker
+                                              {sitIn?.sit_in_method === "physical" ? (
+                                                choices ? (
+                                                  <MakeUpPicker
                                                     publicForm
                                                     id={`sit-in-${session.id}`}
                                                     label="Make-up class"
@@ -1601,12 +1532,12 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                     options={choices.options}
                                                     error={showClassValidation && !currentSitIn ? "Choose a make-up class for this date." : undefined}
                                                     supportContact={config.admin_contact}
-                                                    emptyDescription={choices.unavailableMessage ? `${choices.unavailableMessage.replace(/\.$/, "")}. A make-up class is required for this date. Contact Warwick for help before continuing.` : undefined}
-                                                    moreTimes={hasPriorities || choices.hasMore ? {
+                                                    emptyReason={choices.unavailableMessage}
+                                                    moreTimes={choices.hasMore || choices.latestGroup.sit_in?.priorities?.length || sitInPriorityErrors[session.id] ? {
                                                       hasMore: choices.hasMore,
                                                       loading: revealingPrioritySessionIds.has(session.id),
                                                       error: sitInPriorityErrors[session.id],
-                                                      onLoad: () => void handleNotAvailable(choices.latestGroup, session.id, choices.latestLevel),
+                                                      onLoad: () => void handleRevealMakeUpTimes(choices.latestGroup, session.id, choices.latestLevel),
                                                     } : undefined}
                                                     onChange={(value) => {
                                                       const option = choices.options.find((item) => item.value === value);
@@ -1619,142 +1550,8 @@ export default function AbsenceForm({ mode = "public" }: { mode?: AbsenceFormMod
                                                       }
                                                       handleSitInSelectForSessions(sessionIds, value);
                                                     }}
-                                                  />;
-                                                })() : (() => {
-                                                  if (hasPriorities) {
-                                                    const serverReveal = hasServerPriorityReveal(priorityGroup);
-                                                    const currentPriority = currentPriorities[0];
-                                                    const nextLevel = nextPriorityLevel(priorityGroup, currentLevel);
-                                                    const hasMorePriorities = serverReveal ? Boolean(sitIn.has_next_priority) : nextLevel !== null;
-                                                    const hasPreviousPriority = serverReveal
-                                                      ? Object.keys(sitInPriorityHistory[session.id] ?? {}).some((l) => Number(l) < currentLevel)
-                                                      : previousPriorityLevel(priorityGroup, currentLevel) !== null;
-                                                    const revealingPriority = revealingPrioritySessionIds.has(session.id);
-                                                    const currentPriorityAvailable = currentPriorities.flatMap(p =>
-                                                      availableSessionsForMissedSessions(p, sessionIds));
-                                                    const currentPriorityUnavailable = currentPriorities.flatMap(p =>
-                                                      unavailableSessionsForMissedSession(p, session.id).map((u) => ({ ...u, sitInCourse: p.sit_in_course })));
-                                                    const unavailableForCard = currentPriorityUnavailable.find((item) => item.session) ?? currentPriorityUnavailable[0];
-                                                    const unavailableDisplay = unavailableForCard
-                                                      ? normalizeSitInDisplayModel(
-                                                        unavailableForCard.session ? [unavailableForCard.session] : [],
-                                                        unavailableForCard.sitInCourse,
-                                                        block.label,
-                                                        sessions,
-                                                        { status: "unavailable", reasonCode: unavailableForCard.reason_code },
-                                                      )
-                                                      : undefined;
-                                                    const previousTimesAction = hasPreviousPriority ? (
-                                                      <button
-                                                        type="button"
-                                                        disabled={revealingPriority}
-                                                        onClick={() => handlePreviousPriority(priorityGroup, session.id)}
-                                                        aria-label="See previous times"
-                                                        className="inline-flex h-8 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50"
-                                                      >
-                                                        <ChevronLeft className="h-3.5 w-3.5" />
-                                                        <span>Previous times</span>
-                                                      </button>
-                                                    ) : null;
-                                                    const otherTimesAction = hasMorePriorities ? (
-                                                      <button
-                                                        type="button"
-                                                        disabled={revealingPriority}
-                                                        onClick={() => void handleNotAvailable(priorityGroup, session.id)}
-                                                        className="inline-flex h-8 items-center justify-center gap-1 rounded-full px-3 text-xs font-semibold text-[var(--color-wi-text-light)] transition motion-reduce:transition-none hover:bg-white hover:text-[var(--color-wi-text)] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-wi-amber)]/40 disabled:opacity-50"
-                                                      >
-                                                        <span>{revealingPriority ? "Loading..." : "See other times"}</span>
-                                                        {!revealingPriority && (
-                                                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                                          </svg>
-                                                        )}
-                                                      </button>
-                                                    ) : null;
-
-                                                    if (!currentPriority) {
-                                                      return (
-                                                        <div role="status" className="rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3 text-sm text-[var(--color-wi-text-light)]">
-                                                          <p className="font-semibold text-[var(--color-wi-text)]">No make-up times available</p>
-                                                          {!isStaff && !hasMorePriorities ? (
-                                                            <p className="mt-0.5 text-xs">Staff will help arrange the next step.</p>
-                                                          ) : null}
-                                                          <div className="mt-2 flex flex-wrap gap-2">{previousTimesAction}{otherTimesAction}</div>
-                                                        </div>
-                                                      );
-                                                    }
-
-                                                    return (
-                                                      <div className="absence-makeup-arrangement rounded-lg border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] p-3">
-                                                        {currentPriorityAvailable.length === 0 ? (
-                                                          <div role="status" className="space-y-1.5 text-sm">
-                                                            {hasMorePriorities && unavailableDisplay?.message ? (
-                                                              <>
-                                                                <p className="font-semibold text-[var(--color-wi-text)]">{unavailableDisplay.message}</p>
-                                                                <p className="font-medium text-[var(--color-wi-text)]">{unavailableDisplay.className}</p>
-                                                                {formatSitInDisplayDetails(unavailableDisplay) ? (
-                                                                  <p className="text-xs text-[var(--color-wi-text-light)]">{formatSitInDisplayDetails(unavailableDisplay)}</p>
-                                                                ) : null}
-                                                              </>
-                                                            ) : (
-                                                              <>
-                                                                <p className="font-semibold text-[var(--color-wi-text)]">No make-up times available</p>
-                                                                {!isStaff ? <p className="text-xs text-[var(--color-wi-text-light)]">Staff will help arrange the next step.</p> : null}
-                                                              </>
-                                                            )}
-                                                            <div className="flex flex-wrap gap-2 pt-1">{previousTimesAction}{otherTimesAction}</div>
-                                                          </div>
-                                                        ) : (
-                                                          <>
-                                                            <MakeUpPicker
-                                                              publicForm={!isStaff}
-                                                              error={!isStaff && showClassValidation && !currentSitIn ? "Choose a make-up class for this date." : undefined}
-                                                              context={`For ${block.label} · ${formatDate(dayGroup.date)} · ${formatTime(dayGroup.start_at)}–${formatTime(dayGroup.end_at)}`}
-                                                              id={`sit-in-${session.id}`}
-                                                              label="Make-up class"
-                                                              value={currentSitIn}
-                                                              options={makeUpPickerOptions(sitInOptionsByTargetAndSession(currentPriorities, sessionIds), sessions, selectedSubjectIds, block.label, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
-                                                              moreTimes={hasMorePriorities || revealingPriority || sitInPriorityErrors[session.id] ? {
-                                                                hasMore: hasMorePriorities,
-                                                                loading: revealingPriority,
-                                                                error: sitInPriorityErrors[session.id],
-                                                                onLoad: () => void handleNotAvailable(priorityGroup, session.id),
-                                                              } : undefined}
-                                                              onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
-                                                            />
-                                                            {(hasPreviousPriority || hasMorePriorities) && (
-                                                              <div className="mt-2 flex flex-wrap gap-2">{previousTimesAction}{otherTimesAction}</div>
-                                                            )}
-                                                          </>
-                                                        )}
-                                                      </div>
-                                                    );
-                                                  }
-                                                  return (
-                                                    <div>
-                                                      {sitInAvailable.length === 0 ? (
-                                                        <div role="status" className="rounded-md border border-[var(--color-wi-border)] bg-[var(--color-wi-bg)] px-3 py-2 text-sm">
-                                                          <p className="font-semibold text-[var(--color-wi-text)]">No make-up times available</p>
-                                                          {!isStaff ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">Staff will help arrange the next step.</p> : null}
-                                                        </div>
-                                                      ) : (
-                                                        <>
-                                                          {isStaff ? <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-wi-amber)]">Pick a make-up class</div> : null}
-                                                          <MakeUpPicker
-                                                            publicForm={!isStaff}
-                                                            error={!isStaff && showClassValidation && !currentSitIn ? "Choose a make-up class for this date." : undefined}
-                                                            context={`For ${block.label} · ${formatDate(dayGroup.date)} · ${formatTime(dayGroup.start_at)}–${formatTime(dayGroup.end_at)}`}
-                                                            id={`sit-in-${session.id}`}
-                                                            label="Make-up class"
-                                                            value={currentSitIn}
-                                                            options={makeUpPickerOptions(sitInOptionGroupsBySession(sitInAvailable, sitIn?.sit_in_course), sessions, selectedSubjectIds, block.label, sitIn?.sit_in_course, Object.values(sitInSelections).flatMap(splitMergedSessionValue), currentSitIn, currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, sitInSelections, sessionIds))}
-                                                            onChange={(value) => handleSitInSelectForSessions(sessionIds, value)}
-                                                          />
-                                                        </>
-                                                      )}
-                                                    </div>
-                                                  );
-                                                })()
+                                                  />
+                                                ) : null
                                               ) : sitIn && sitIn.sit_in_method === "zoom" ? (
                                                 <div className="space-y-1 text-sm text-[var(--color-wi-text)]">
                                                   <div className="flex items-center gap-2">

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AbsenceForm from "../AbsenceForm";
 import type { SessionsInRangeResponse } from "@/types";
@@ -100,17 +100,10 @@ describe("AbsenceForm final sessions outside SAT Verbal policy", () => {
     expect(finalLesson).toBeEnabled();
     await user.click(finalLesson!);
 
-    if (mode === "student") {
-      const choices = await readMakeUpChoices(user);
-      expect(choices.find((choice) => /11 Jan/i.test(choice.name))?.disabled).toBe(false);
-      expect(choices.find((choice) => /18 Jan/i.test(choice.name))?.disabled).toBe(false);
-      await chooseMakeUp(user, "target-final");
-    } else {
-      const picker = await screen.findByRole("combobox");
-      expect(within(picker).getByRole("option", { name: /11 Jan/i })).toBeEnabled();
-      expect(within(picker).getByRole("option", { name: /18 Jan/i })).toBeEnabled();
-      await user.selectOptions(picker, "target-final");
-    }
+    const choices = await readMakeUpChoices(user);
+    expect(choices.find((choice) => /11 Jan/i.test(choice.name))?.disabled).toBe(false);
+    expect(choices.find((choice) => /18 Jan/i.test(choice.name))?.disabled).toBe(false);
+    await chooseMakeUp(user, "target-final");
     await user.type(screen.getByRole("textbox", { name: /reason for absence/i }), "Medical appointment");
     await user.click(screen.getByRole("button", { name: /review absence/i }));
     await user.click(await screen.findByRole("button", { name: /^submit absence$/i }));

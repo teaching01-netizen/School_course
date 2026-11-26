@@ -33,7 +33,7 @@ type MakeUpPickerProps = {
     error?: string;
     onLoad: () => void;
   };
-  emptyDescription?: string;
+  emptyReason?: string;
   supportContact?: { email?: string; phone?: string };
 };
 
@@ -45,7 +45,7 @@ function optionLines(option: MakeUpOption, publicForm: boolean) {
   };
 }
 
-export default function MakeUpPicker({ id, label, value, options, onChange, disabled = false, publicForm = false, context, error, moreTimes, emptyDescription, supportContact }: MakeUpPickerProps) {
+export default function MakeUpPicker({ id, label, value, options, onChange, disabled = false, publicForm = false, context, error, moreTimes, emptyReason, supportContact }: MakeUpPickerProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   // null = nothing chosen yet; "" = an explicit "Not yet selected" (clear).
   const [pendingValue, setPendingValue] = useState<string | null>(null);
@@ -66,6 +66,8 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const pendingInvalid = Boolean(pendingValue && (!pendingOption || pendingOption.disabled));
   const canConfirm = !disabled && pendingValue !== null && !pendingInvalid;
   const availableCount = options.filter((option) => !option.disabled).length;
+  const hasNoAvailableTimes = publicForm && availableCount === 0;
+  const canLoadOtherTimes = Boolean(moreTimes && (moreTimes.hasMore || moreTimes.loading || moreTimes.error));
   const days = useMemo(() => makeUpDays(options), [options]);
   // A reveal can replace the option set and drop the day that was showing; fall
   // back to the sheet's opening rule instead of rendering an empty list.
@@ -77,7 +79,7 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
   const selectedDayModel = days.find((day) => day.key === activeDay);
   const spansMonths = useMemo(() => new Set(days.map((day) => day.monthLabel)).size > 1, [days]);
   // Another day still has times, so the whole-list empty state would be wrong.
-  const dayHasNoTimes = Boolean(selectedDayModel && visibleOptions.length > 0 && !selectedDayModel.hasAvailable && availableCount > 0);
+  const dayHasNoTimes = Boolean(selectedDayModel && availableCount > 0 && !visibleOptions.some((option) => !option.disabled));
   const selectOptions = [
     { value: "", label: "Not yet selected" },
     ...options.map((option) => ({
@@ -139,13 +141,10 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     </label>
   );
 
-  // Lives in the sheet footer, next to the action it unblocks: when every time
-  // on screen is taken, "See other times" is the way forward and must not be
-  // hidden below a scrollable list.
   const moreTimesControl = moreTimes ? (
     <div className="absence-makeup-more">
       {moreTimes.error ? <p role="status" className="absence-makeup-more__error">{moreTimes.error}</p> : null}
-      {moreTimes.hasMore || moreTimes.error ? (
+      {canLoadOtherTimes ? (
         <button type="button" disabled={moreTimes.loading} onClick={(event) => {
           moreRequest.current = { button: event.currentTarget, values: new Set(options.map((option) => option.value)), count: options.length };
           moreTimes.onLoad();
@@ -158,13 +157,14 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
     </div>
   ) : null;
 
-  const noAvailableTimes = publicForm && availableCount === 0 ? (
+  const emptyState = hasNoAvailableTimes ? (
     <div className="absence-makeup-empty">
       <p className="font-semibold">{options.length ? "None of these times are available" : "No make-up times available"}</p>
-      <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
-        {moreTimes?.hasMore ? "Use See other times below to look for another class." : emptyDescription ?? "A make-up class is required for this date. Contact Warwick for help before continuing."}
-      </p>
-      {!moreTimes?.hasMore && (supportContact?.phone || supportContact?.email) ? (
+      {!canLoadOtherTimes ? <p className="mt-1 text-xs text-[var(--color-wi-text-light)]">
+        {options.length === 0 && emptyReason ? `${emptyReason.replace(/\.$/, "")}. ` : null}
+        A make-up class is required for this date. Contact Warwick for help before continuing.
+      </p> : null}
+      {!canLoadOtherTimes && (supportContact?.phone || supportContact?.email) ? (
         <div className="absence-makeup-support">
           {supportContact.phone ? <a href={`tel:${supportContact.phone.replace(/[^\d+]/g, "")}`}>Call Warwick</a> : null}
           {supportContact.email ? <a href={`mailto:${encodeURIComponent(supportContact.email)}`}>Email Warwick</a> : null}
@@ -263,19 +263,24 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
         title="Choose a make-up class"
         description={publicForm ? context : undefined}
         summary={publicForm && selectedLines ? <div className="absence-makeup-current" data-invalid={selectionInvalid || undefined}>
-          <span>{selectionInvalid ? "Previous choice · choose another time" : "Current choice"}</span>
+          <span>{selectionInvalid ? "Previous choice · unavailable" : "Current choice"}</span>
           <p>{selectedLines.primary}</p>
         </div> : undefined}
         onClose={() => setSheetOpen(false)}
         restoreFocusRef={triggerRef}
         toolbar={daysControl ?? undefined}
-        footer={
+        footer={!hasNoAvailableTimes || pendingValue === "" ? (
           <>
             {pendingInvalid ? (
-              <p role="status" className="mb-3 text-sm text-[var(--color-wi-amber)]">This class is no longer available. Choose another time.</p>
+              <p role="status" className="mb-3 text-sm text-[var(--color-wi-amber)]">
+                This class is no longer available. {publicForm && dayHasNoTimes ? "Choose another date." : "Choose another time."}
+              </p>
             ) : publicForm ? (
               <p role="status" aria-live="polite" className="absence-makeup-confirmation mb-3 text-sm text-[var(--color-wi-text-light)]">
-                {pendingOption ? `Selected: ${optionLines(pendingOption, publicForm).primary}` : pendingValue === "" ? "Your make-up selection will be cleared." : "Choose a class, then confirm."}
+                {pendingOption ? `Selected: ${optionLines(pendingOption, publicForm).primary}`
+                  : pendingValue === "" ? "Your make-up selection will be cleared."
+                  : dayHasNoTimes ? "Choose another date to see available classes."
+                  : "Choose a class, then confirm."}
               </p>
             ) : null}
             <button
@@ -291,9 +296,9 @@ export default function MakeUpPicker({ id, label, value, options, onChange, disa
               {publicForm && pendingValue === "" ? "Remove make-up selection" : "Confirm make-up class"}
             </button>
           </>
-        }
+        ) : undefined}
       >
-        {noAvailableTimes}
+        {emptyState}
         {dayHasNoTimes ? <p data-day-unavailable="true" className="absence-makeup-day-unavailable">No times available on {formatDate(selectedDayModel!.key)}.</p> : null}
         <fieldset ref={choicesRef} className="space-y-2">
           <legend className="sr-only">{label}</legend>

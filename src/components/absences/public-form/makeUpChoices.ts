@@ -123,6 +123,7 @@ export function publicMakeUpChoices({
   const levels = [...new Set([baseLevel, selectedLevel ?? baseLevel, ...Object.keys(history ?? {}).map(Number)])].sort((a, b) => a - b);
   const groupsByLevel = new Map<number, SubjectSessions>();
   const options = new Map<string, MakeUpOption>();
+  const offeredSessionIds = new Set<string>();
   const unavailableById = new Map<string, string>();
   const owners = currentSitInOwners(sessions, selectedSubjectIds, selectedSessionIds, selections, sessionIds);
   const activeIds = new Set(sessions.filter((item) => selectedSubjectIds.includes(item.subject_id))
@@ -139,8 +140,12 @@ export function publicMakeUpChoices({
       : sitInOptionGroupsBySession(rootAvailableSessionsForMissedSessions(batch.sit_in, sessionIds), batch.sit_in?.sit_in_course);
     const batchOptions = makeUpPickerOptions(optionGroups, sessions, selectedSubjectIds, label, batch.sit_in?.sit_in_course, selectedSitInIds, selections[sessionId], owners, true);
     for (const option of batchOptions) {
-      for (const id of splitMergedSessionValue(option.value)) unavailableById.delete(id);
-      const key = splitMergedSessionValue(option.value).sort().join("|");
+      const ids = splitMergedSessionValue(option.value);
+      for (const id of ids) {
+        offeredSessionIds.add(id);
+        unavailableById.delete(id);
+      }
+      const key = ids.sort().join("|");
       const selectedValue = selections[sessionId];
       const value = selectedValue && splitMergedSessionValue(selectedValue).sort().join("|") === key
         ? selectedValue : options.get(key)?.value ?? option.value;
@@ -150,6 +155,8 @@ export function publicMakeUpChoices({
       ? priorities.flatMap((priority) => unavailableSessionsForMissedSessions(priority, sessionIds).map((item) => ({ item, course: priority.sit_in_course })))
       : unavailableSessionsForMissedSessions({ level, label: "", unavailable_sessions: batch.sit_in?.unavailable_sessions }, sessionIds).map((item) => ({ item, course: batch.sit_in?.sit_in_course }));
     for (const { item, course } of unavailable) {
+      // The resolver reports duplicate offers as unavailable in later priorities.
+      if (item.reason_code === "already_offered" && item.session && offeredSessionIds.has(item.session.id)) continue;
       const message = item.reason_code === "sit_in_session_already_used" ? "Already assigned to another absence" : getAbsenceMessageCopy(item.reason_code);
       unavailableMessage = message;
       if (!item.session) continue;

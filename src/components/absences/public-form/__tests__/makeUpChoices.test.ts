@@ -30,6 +30,28 @@ describe("public make-up choices", () => {
     expect(result.groupsByLevel.get(1)?.sit_in?.priorities?.[0].sit_in_course?.id).toBe("target1");
   });
 
+  it.each([
+    ["already_offered", false],
+    ["target_final_class", true],
+    ["sit_in_session_already_used", true],
+  ])("uses %s correctly when a later priority repeats an offered session", (reasonCode, disabled) => {
+    const next: SubjectSessions = { ...group, sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false,
+      priorities: [{ level: 2, label: "Second", unavailable_sessions: [{ session: first, reason: reasonCode, reason_code: reasonCode }] }],
+    } };
+    const result = choices({ history: { 2: next }, selectedLevel: 1, selections: { missed: first.id } });
+
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0]).toMatchObject({ value: first.id, priorityLevel: 1, disabled });
+  });
+
+  it("keeps an already-offered session disabled when this picker has no earlier offer for it", () => {
+    const next: SubjectSessions = { ...group, sit_in: { sit_in_method: "physical", current_priority_level: 2, has_next_priority: false,
+      priorities: [{ level: 2, label: "Second", unavailable_sessions: [{ session: second, reason: "Already offered", reason_code: "already_offered" }] }],
+    } };
+
+    expect(choices({ history: { 2: next } }).options).toContainEqual(expect.objectContaining({ value: second.id, disabled: true }));
+  });
+
   it("identifies the absence that owns a choice without reserving hidden course selections", () => {
     const other = { ...missed, id: "other", date: "2026-10-21", start_at: "2026-10-21T09:00:00+07:00", end_at: "2026-10-21T10:00:00+07:00" };
     const withOther = { ...group, sessions: [missed, other] };

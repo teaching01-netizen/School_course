@@ -198,6 +198,7 @@ describe("MakeUpPicker", () => {
     expect(within(dialog).getByText("Chemistry Lab C3 · Mon, 19 Jan · 13:00–14:30")).toBeInTheDocument();
     expect(within(dialog).getByText(/No times available on Mon,\s+19\s+Jan\s+2026\./)).toBeInTheDocument();
     expect(within(dialog).queryByText(/None of these times are available/)).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Choose another date to see available classes.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeDisabled();
   });
 
@@ -227,16 +228,21 @@ describe("MakeUpPicker", () => {
     const user = userEvent.setup();
     const onLoad = vi.fn();
     const props = { publicForm: true, id: "make-up", label: "Make-up class", value: "", onChange: vi.fn() };
-    const { rerender } = render(<MakeUpPicker {...props} options={[dayOptions[0]]} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
+    const blocked = { ...dayOptions[0], disabled: true };
+    const { rerender } = render(<MakeUpPicker {...props} options={[blocked]} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
     await user.click(screen.getByRole("button", { name: /choose a make-up/i }));
     const dialog = screen.getByRole("dialog");
 
+    expect(within(dialog).queryByRole("button", { name: "Confirm make-up class" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Contact Warwick/)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "See other times" }));
     expect(onLoad).toHaveBeenCalledOnce();
-    rerender(<MakeUpPicker {...props} options={dayOptions} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
+    rerender(<MakeUpPicker {...props} options={[blocked, ...dayOptions.slice(1)]} moreTimes={{ hasMore: true, loading: false, onLoad }} />);
 
     await waitFor(() => expect(within(dialog).getByRole("radio", { name: "Sunday 18 January" })).toBeChecked());
     expect(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ })).toHaveFocus();
+    await user.click(within(dialog).getByRole("radio", { name: /18 Jan · 10:00–11:00/ }));
+    expect(within(dialog).getByRole("button", { name: "Confirm make-up class" })).toBeEnabled();
   });
 
   it("falls back to an available day when a reveal drops the day being shown", async () => {
